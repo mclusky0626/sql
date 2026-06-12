@@ -14,6 +14,7 @@
       <a href="/">홈</a>
       <a href="/dummy.html">더미 사이트</a>
       <a href="/lab.html">보안 실습실</a>
+      <a href="/bruteforce.html">무차별 대입</a>
       <a href="/guide.html">방어 가이드</a>
     </nav>
   </header>
@@ -294,74 +295,13 @@ db.prepare(`SELECT * FROM posts ORDER BY ${col}`);</pre>
             <li><b>이상 로그인 알림</b> — 새 기기/지역 로그인 시 사용자에게 통지</li>
           </ul>
 
-          <!-- 비밀번호 크랙 시간 시뮬레이터 -->
-          <div class="card pw-sim" style="margin-top:20px;">
-            <h3 style="margin:0 0 4px;">🔓 내 비밀번호는 몇 번 만에, 몇 시간 만에 뚫릴까?</h3>
-            <p class="muted" style="margin:0 0 16px;font-size:14px;">
-              비밀번호를 입력하면 공격자가 <b>무차별 대입</b>으로 알아내는 데 필요한 시도 횟수와 시간을 추정합니다.
-              입력값은 <b>서버로 전송되지 않고</b> 브라우저에서만 계산됩니다.
-            </p>
-
-            <div class="field" style="margin-bottom:6px;">
-              <div class="row" style="gap:8px;align-items:center;">
-                <input type="text" id="pwInput" placeholder="비밀번호를 입력해 보세요 — 예: 1234, password, P@ssw0rd!" autocomplete="off" spellcheck="false" style="flex:1;font-family:var(--mono,monospace);letter-spacing:.03em;" />
-                <button class="btn btn-sm" id="pwToggle" type="button">🙈 가리기</button>
-              </div>
+          <div class="callout tip" style="margin-top:16px;">
+            <span class="ico">🔓</span>
+            <div>
+              <b>무차별 대입 전용 페이지가 따로 있습니다.</b>
+              실패를 쌓아 잠금 단계가 올라가는 <b>라이브 시연</b>과, 내 비밀번호가 몇 번 만에·몇 시간 만에 뚫리는지 보여주는
+              <b>크랙 시간 시뮬레이터</b>를 <a href="/bruteforce.html">무차별 대입</a> 탭에서 직접 확인해보세요.
             </div>
-
-            <!-- 강도 막대 -->
-            <div id="pwBar" style="display:flex;gap:5px;margin:14px 0 8px;">
-              <span style="flex:1;height:7px;border-radius:980px;background:var(--border-soft);transition:background .25s var(--ease);"></span>
-              <span style="flex:1;height:7px;border-radius:980px;background:var(--border-soft);transition:background .25s var(--ease);"></span>
-              <span style="flex:1;height:7px;border-radius:980px;background:var(--border-soft);transition:background .25s var(--ease);"></span>
-              <span style="flex:1;height:7px;border-radius:980px;background:var(--border-soft);transition:background .25s var(--ease);"></span>
-              <span style="flex:1;height:7px;border-radius:980px;background:var(--border-soft);transition:background .25s var(--ease);"></span>
-            </div>
-            <div id="pwVerdict" class="muted" style="font-weight:700;font-size:15px;min-height:22px;">비밀번호를 입력해 보세요.</div>
-
-            <!-- 핵심 지표 -->
-            <div id="pwStats" class="grid" style="grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px;">
-              <div class="pw-stat"><div class="pw-k">문자 종류</div><div class="pw-v" id="pwCharset">—</div></div>
-              <div class="pw-stat"><div class="pw-k">가능한 경우의 수</div><div class="pw-v" id="pwSpace">—</div></div>
-              <div class="pw-stat"><div class="pw-k">엔트로피</div><div class="pw-v" id="pwEntropy">—</div></div>
-            </div>
-
-            <!-- 시나리오별 크랙 시간 -->
-            <div style="margin-top:16px;">
-              <div class="muted" style="font-size:12.5px;font-weight:700;margin-bottom:8px;">공격 시나리오별 예상 소요 시간 (평균)</div>
-              <div class="pw-scn">
-                <div class="pw-scn-name">🐌 온라인 (속도제한 有)<span class="pw-scn-rate">100회/초</span></div>
-                <div class="pw-scn-time" id="pwOnline">—</div>
-              </div>
-              <div class="pw-scn">
-                <div class="pw-scn-name">⚡ 오프라인·bcrypt 해시<span class="pw-scn-rate">2만회/초</span></div>
-                <div class="pw-scn-time" id="pwBcrypt">—</div>
-              </div>
-              <div class="pw-scn">
-                <div class="pw-scn-name">🔥 오프라인·고속 GPU(MD5/SHA)<span class="pw-scn-rate">1조회/초</span></div>
-                <div class="pw-scn-time" id="pwGpu">—</div>
-              </div>
-            </div>
-
-            <!-- 좋은 비밀번호 만들기 가이드 -->
-            <div class="callout tip" style="margin-top:18px;">
-              <span class="ico">💡</span>
-              <div>
-                <b>안전한 비밀번호 만드는 법</b>
-                <ul style="margin:8px 0 0;padding-left:18px;line-height:1.8;">
-                  <li><b>길이가 가장 강력</b> — 8자보다 16자가 비교 불가로 안전. 길이를 늘리면 경우의 수가 기하급수적으로 커집니다.</li>
-                  <li><b>4가지 문자 종류 섞기</b> — 소문자·대문자·숫자·기호를 모두 사용해 문자 집합을 키웁니다.</li>
-                  <li><b>패스프레이즈 추천</b> — <code>correct-horse-battery-staple</code>처럼 관련 없는 단어 4개를 이으면 길고 외우기 쉽습니다.</li>
-                  <li><b>흔한 비밀번호·개인정보 금지</b> — <code>1234</code>, <code>password</code>, 생일, 이름은 사전 공격 1순위로 즉시 뚫립니다.</li>
-                  <li><b>사이트마다 다르게</b> — 한 곳이 유출돼도 다른 계정이 안전합니다. 비밀번호 관리자 사용을 권장합니다.</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-
-          <div class="callout tip" style="margin-top:14px;">
-            <span class="ico">🧪</span>
-            <div><a href="/dummy.html">더미 사이트</a>의 "④ 무차별 대입 체험"으로 직접 실패를 쌓아 경고 단계가 올라가는 걸 확인해보세요.</div>
           </div>
         </section>
 
@@ -404,148 +344,6 @@ db.prepare(`SELECT * FROM posts ORDER BY ${col}`);</pre>
       });
     }, { rootMargin: '-30% 0px -65% 0px' });
     sections.forEach((s) => s && obs.observe(s));
-
-    // ── 비밀번호 크랙 시간 시뮬레이터 ──
-    (function () {
-      const input = document.getElementById('pwInput');
-      const toggle = document.getElementById('pwToggle');
-      const bar = document.getElementById('pwBar').children;
-      const verdict = document.getElementById('pwVerdict');
-      const elCharset = document.getElementById('pwCharset');
-      const elSpace = document.getElementById('pwSpace');
-      const elEntropy = document.getElementById('pwEntropy');
-      const elOnline = document.getElementById('pwOnline');
-      const elBcrypt = document.getElementById('pwBcrypt');
-      const elGpu = document.getElementById('pwGpu');
-      if (!input) return;
-
-      // 사전 공격으로 즉시 뚫리는 흔한 비밀번호
-      const COMMON = new Set(['1234','12345','123456','1234567','12345678','123456789','1234567890',
-        '0000','1111','password','password1','passw0rd','qwerty','qwerty123','abc123','admin','guest',
-        'iloveyou','letmein','welcome','monkey','dragon','master','login','1q2w3e4r','asdf','asdfasdf',
-        'zxcvbnm','aaaa','test','test1234','1q2w3e','111111','000000','korea','samsung']);
-
-      function classes(pw) {
-        let size = 0, kinds = [];
-        if (/[a-z]/.test(pw)) { size += 26; kinds.push('소문자'); }
-        if (/[A-Z]/.test(pw)) { size += 26; kinds.push('대문자'); }
-        if (/[0-9]/.test(pw)) { size += 10; kinds.push('숫자'); }
-        if (/[^a-zA-Z0-9]/.test(pw)) { size += 33; kinds.push('기호'); }
-        return { size, kinds };
-      }
-
-      // 큰 수를 한국어 단위로 축약 (10^n)
-      function bigNum(x) {
-        if (x === Infinity || x > 1e24) return '사실상 무한';
-        if (x < 1e4) return Math.round(x).toLocaleString();
-        const units = [[1e16,'경'],[1e12,'조'],[1e8,'억'],[1e4,'만']];
-        for (const [v, u] of units) {
-          if (x >= v) return (x / v).toFixed(x / v >= 100 ? 0 : 1).replace(/\.0$/, '') + u;
-        }
-        return Math.round(x).toLocaleString();
-      }
-
-      // 초 단위를 사람이 읽는 시간으로
-      function humanTime(sec) {
-        if (sec < 1) return '1초 미만 (즉시)';
-        const u = [
-          [60, '초'], [60, '분'], [24, '시간'], [365, '일'],
-          [100, '년'], [1e6, '세기'],
-        ];
-        let val = sec, idx = 0, names = ['초','분','시간','일','년','세기','백만 세기'];
-        const divs = [1, 60, 60, 24, 365, 100, 1e6];
-        let acc = sec, i = 0;
-        for (i = 0; i < divs.length - 1; i++) {
-          if (acc < divs[i + 1]) break;
-          acc /= divs[i + 1];
-        }
-        const name = names[i];
-        if (name === '백만 세기' || acc > 1e9) {
-          if (acc > 1e9) return '우주 나이보다 김 (사실상 불가)';
-          return Math.round(acc).toLocaleString() + ' ' + name;
-        }
-        const rounded = acc >= 100 ? Math.round(acc) : Math.round(acc * 10) / 10;
-        return rounded.toLocaleString() + name;
-      }
-
-      // 시간 길이에 따른 위험 색상
-      function timeColor(sec) {
-        if (sec < 60) return 'var(--danger)';        // 1분 미만
-        if (sec < 86400) return 'var(--warn)';       // 하루 미만
-        if (sec < 3.15e9) return 'var(--text)';      // 100년 미만
-        return 'var(--success)';                     // 100년 이상
-      }
-
-      function paintBar(level, color) {
-        for (let i = 0; i < bar.length; i++) {
-          bar[i].style.background = i < level ? color : 'var(--border-soft)';
-        }
-      }
-
-      function update() {
-        const pw = input.value;
-        if (!pw) {
-          verdict.textContent = '비밀번호를 입력해 보세요.';
-          verdict.style.color = 'var(--muted)';
-          paintBar(0, '');
-          [elCharset, elSpace, elEntropy, elOnline, elBcrypt, elGpu].forEach((e) => {
-            e.textContent = '—'; e.style.color = 'var(--text)';
-          });
-          return;
-        }
-
-        const { size, kinds } = classes(pw);
-        const len = pw.length;
-        const entropy = len * Math.log2(size || 1);
-        const space = Math.pow(size || 1, len);
-        const guesses = space / 2; // 평균적으로 절반 시도 시 발견
-
-        elCharset.textContent = kinds.join('+') + ` (${size}종)`;
-        elSpace.textContent = bigNum(space);
-        elEntropy.textContent = Math.round(entropy) + ' bit';
-
-        const rates = { online: 100, bcrypt: 20000, gpu: 1e12 };
-        const isCommon = COMMON.has(pw.toLowerCase());
-
-        function setScn(el, rate) {
-          if (isCommon) { el.textContent = '즉시 (사전 공격)'; el.style.color = 'var(--danger)'; return; }
-          const sec = guesses / rate;
-          el.textContent = humanTime(sec);
-          el.style.color = timeColor(sec);
-        }
-        setScn(elOnline, rates.online);
-        setScn(elBcrypt, rates.bcrypt);
-        setScn(elGpu, rates.gpu);
-
-        // 종합 판정 — 현실적 위협인 GPU 기준
-        let level, color, label;
-        const gpuSec = guesses / rates.gpu;
-        if (isCommon) {
-          level = 1; color = 'var(--danger)'; label = '☠️ 매우 취약 — 사전 공격 1순위, 즉시 뚫립니다';
-        } else if (len < 6 || entropy < 28) {
-          level = 1; color = 'var(--danger)'; label = '🔴 매우 약함 — 순식간에 뚫립니다';
-        } else if (gpuSec < 3600 || entropy < 40) {
-          level = 2; color = 'var(--danger)'; label = '🟠 약함 — 한 시간 안에 뚫립니다';
-        } else if (gpuSec < 2.6e6 || entropy < 60) {
-          level = 3; color = 'var(--warn)'; label = '🟡 보통 — 며칠~몇 주면 뚫립니다';
-        } else if (gpuSec < 3.15e9 || entropy < 80) {
-          level = 4; color = 'var(--success)'; label = '🟢 강함 — 수년이 걸립니다';
-        } else {
-          level = 5; color = 'var(--success)'; label = '🛡️ 매우 강함 — 현실적으로 뚫을 수 없습니다';
-        }
-        verdict.textContent = label;
-        verdict.style.color = color;
-        paintBar(level, color);
-      }
-
-      input.addEventListener('input', update);
-      toggle.addEventListener('click', () => {
-        const hidden = input.type === 'password';
-        input.type = hidden ? 'text' : 'password';
-        toggle.textContent = hidden ? '🙈 가리기' : '👁️ 보기';
-      });
-      update();
-    })();
   </script>
 </body>
 </html>

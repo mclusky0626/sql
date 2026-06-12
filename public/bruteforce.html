@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>무차별 대입 — SQLi Guard</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>" />
+</head>
+<body>
+  <header class="nav">
+    <a class="brand" href="/">🛡️ SQLi<span class="dot">·</span>Guard</a>
+    <nav>
+      <a href="/">홈</a>
+      <a href="/dummy.html">더미 사이트</a>
+      <a href="/lab.html">보안 실습실</a>
+      <a href="/bruteforce.html">무차별 대입</a>
+      <a href="/guide.html">방어 가이드</a>
+    </nav>
+  </header>
+
+  <div class="container wide">
+    <h1 class="mb-0">🔓 무차별 대입(Brute Force)</h1>
+    <p class="muted mt-0">인젝션이 막혀도 공격자는 비밀번호를 <b>끝없이 반복 추측</b>할 수 있습니다. 직접 시도를 쌓아 경고가 올라가는 걸 보고, 내 비밀번호가 몇 번 만에 뚫리는지 확인해 보세요.</p>
+
+    <div class="grid" style="grid-template-columns: 1fr 1fr; gap:18px; align-items:start;">
+      <!-- 라이브 시연 -->
+      <div class="card">
+        <h2 class="card-title mt-0">① 라이브 시연 — 실패를 쌓아보기</h2>
+        <p class="muted mt-0" style="font-size:13.5px;">존재하는 계정에 <b>틀린 비밀번호</b>로 반복 로그인하면, 서버가 실패를 세어 <b>주의 → 위험 → 잠금</b>으로 단계를 올립니다.</p>
+
+        <div class="field">
+          <label>아이디</label>
+          <input type="text" id="bfUser" value="minji" />
+        </div>
+        <div class="field">
+          <label>비밀번호 (일부러 틀리게)</label>
+          <input type="text" id="bfPass" value="wrongpass123" />
+        </div>
+
+        <div class="row mt">
+          <button class="btn btn-primary" id="bfTryBtn">🔑 로그인 시도</button>
+          <button class="btn" id="bfAutoBtn">⏩ 자동 10회 공격</button>
+          <button class="btn btn-ghost" id="bfResetBtn">↺ 초기화</button>
+        </div>
+
+        <div id="bfBar" class="bf-bar"></div>
+        <div id="bfResult" style="margin-top:12px;"></div>
+      </div>
+
+      <!-- 방어책 설명 -->
+      <div class="card">
+        <h2 class="card-title mt-0">② 실무 방어책</h2>
+        <ul style="line-height:1.9;margin-top:6px;">
+          <li><b>속도 제한(Rate limiting)</b> — IP·계정당 분당 시도 횟수 제한</li>
+          <li><b>계정 잠금·지연</b> — N회 실패 시 일시 잠금, 실패할수록 응답 지연 증가</li>
+          <li><b>CAPTCHA</b> — 자동화 도구를 사람과 구분해 차단</li>
+          <li><b>2단계 인증(2FA)</b> — 비밀번호가 뚫려도 추가 인증으로 방어</li>
+          <li><b>이상 로그인 알림</b> — 새 기기·지역 로그인 시 사용자에게 통지</li>
+          <li><b>비밀번호 해시(bcrypt/argon2)</b> — 유출돼도 원문 복원을 어렵게</li>
+        </ul>
+        <div class="callout info" style="margin-top:12px;">
+          <span class="ico">🧠</span>
+          <div style="font-size:13.5px;">가장 근본적인 방어는 <b>사용자가 강한 비밀번호를 쓰는 것</b>입니다. 아래 시뮬레이터로 강도를 직접 확인하세요.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 비밀번호 크랙 시간 시뮬레이터 -->
+    <div class="card pw-sim mt">
+      <h2 class="card-title mt-0">③ 내 비밀번호는 몇 번 만에, 몇 시간 만에 뚫릴까?</h2>
+      <p class="muted" style="margin:0 0 16px;font-size:14px;">
+        비밀번호를 입력하면 공격자가 <b>무차별 대입</b>으로 알아내는 데 필요한 시도 횟수와 시간을 추정합니다.
+        입력값은 <b>서버로 전송되지 않고</b> 브라우저에서만 계산됩니다.
+      </p>
+
+      <div class="field" style="margin-bottom:6px;">
+        <div class="row" style="gap:8px;align-items:center;">
+          <input type="text" id="pwInput" placeholder="비밀번호를 입력해 보세요 — 예: 1234, password, P@ssw0rd!" autocomplete="off" spellcheck="false" style="flex:1;font-family:var(--mono,monospace);letter-spacing:.03em;" />
+          <button class="btn btn-sm" id="pwToggle" type="button">🙈 가리기</button>
+        </div>
+      </div>
+
+      <!-- 강도 막대 -->
+      <div id="pwBar" style="display:flex;gap:5px;margin:14px 0 8px;">
+        <span style="flex:1;height:7px;border-radius:980px;background:var(--border-soft);transition:background .25s var(--ease);"></span>
+        <span style="flex:1;height:7px;border-radius:980px;background:var(--border-soft);transition:background .25s var(--ease);"></span>
+        <span style="flex:1;height:7px;border-radius:980px;background:var(--border-soft);transition:background .25s var(--ease);"></span>
+        <span style="flex:1;height:7px;border-radius:980px;background:var(--border-soft);transition:background .25s var(--ease);"></span>
+        <span style="flex:1;height:7px;border-radius:980px;background:var(--border-soft);transition:background .25s var(--ease);"></span>
+      </div>
+      <div id="pwVerdict" class="muted" style="font-weight:700;font-size:15px;min-height:22px;">비밀번호를 입력해 보세요.</div>
+
+      <!-- 핵심 지표 -->
+      <div id="pwStats" class="grid" style="grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px;">
+        <div class="pw-stat"><div class="pw-k">문자 종류</div><div class="pw-v" id="pwCharset">—</div></div>
+        <div class="pw-stat"><div class="pw-k">가능한 경우의 수</div><div class="pw-v" id="pwSpace">—</div></div>
+        <div class="pw-stat"><div class="pw-k">엔트로피</div><div class="pw-v" id="pwEntropy">—</div></div>
+      </div>
+
+      <!-- 시나리오별 크랙 시간 -->
+      <div style="margin-top:16px;">
+        <div class="muted" style="font-size:12.5px;font-weight:700;margin-bottom:8px;">공격 시나리오별 예상 소요 시간 (평균)</div>
+        <div class="pw-scn">
+          <div class="pw-scn-name">🐌 온라인 (속도제한 有)<span class="pw-scn-rate">100회/초</span></div>
+          <div class="pw-scn-time" id="pwOnline">—</div>
+        </div>
+        <div class="pw-scn">
+          <div class="pw-scn-name">⚡ 오프라인·bcrypt 해시<span class="pw-scn-rate">2만회/초</span></div>
+          <div class="pw-scn-time" id="pwBcrypt">—</div>
+        </div>
+        <div class="pw-scn">
+          <div class="pw-scn-name">🔥 오프라인·고속 GPU(MD5/SHA)<span class="pw-scn-rate">1조회/초</span></div>
+          <div class="pw-scn-time" id="pwGpu">—</div>
+        </div>
+      </div>
+
+      <!-- 좋은 비밀번호 만들기 가이드 -->
+      <div class="callout tip" style="margin-top:18px;">
+        <span class="ico">💡</span>
+        <div>
+          <b>안전한 비밀번호 만드는 법</b>
+          <ul style="margin:8px 0 0;padding-left:18px;line-height:1.8;">
+            <li><b>길이가 가장 강력</b> — 8자보다 16자가 비교 불가로 안전. 길이를 늘리면 경우의 수가 기하급수적으로 커집니다.</li>
+            <li><b>4가지 문자 종류 섞기</b> — 소문자·대문자·숫자·기호를 모두 사용해 문자 집합을 키웁니다.</li>
+            <li><b>패스프레이즈 추천</b> — <code>correct-horse-battery-staple</code>처럼 관련 없는 단어 4개를 이으면 길고 외우기 쉽습니다.</li>
+            <li><b>흔한 비밀번호·개인정보 금지</b> — <code>1234</code>, <code>password</code>, 생일, 이름은 사전 공격 1순위로 즉시 뚫립니다.</li>
+            <li><b>사이트마다 다르게</b> — 한 곳이 유출돼도 다른 계정이 안전합니다. 비밀번호 관리자 사용을 권장합니다.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="footer">🛡️ SQLi·Guard — 무차별 대입 실습은 교육용 로컬 환경 전용입니다.</footer>
+
+  <script src="/js/app.js"></script>
+  <script>
+    const { postJSON, escapeHtml, toast } = window.App;
+
+    // ── 라이브 무차별 대입 시연 ──
+    function renderBf(bf) {
+      const bar = document.getElementById('bfBar');
+      if (!bf || bf.count === 0) { bar.className = 'bf-bar'; bar.innerHTML = ''; return; }
+      const pct = Math.min(100, Math.round((bf.count / bf.lockAt) * 100));
+      let msg = '';
+      if (bf.level === 'locked') msg = `🔒 계정 잠금! 반복된 로그인 실패가 감지되어 일시적으로 차단되었습니다.`;
+      else if (bf.level === 'danger') msg = `🚨 위험: 로그인 ${bf.count}회 실패. ${bf.remainingBeforeLock}회 더 실패하면 계정이 잠깁니다.`;
+      else msg = `⚠️ 주의: 로그인 ${bf.count}회 실패. 무차별 대입 공격이 의심됩니다.`;
+      bar.className = 'bf-bar show ' + (bf.level === 'ok' ? 'warn' : bf.level);
+      bar.innerHTML = `${msg}<div class="bf-meter"><span style="width:${pct}%"></span></div>`;
+    }
+
+    async function tryLogin() {
+      const username = document.getElementById('bfUser').value;
+      const password = document.getElementById('bfPass').value;
+      const r = await postJSON('/api/login', { username, password, mode: 'vulnerable', waf: false });
+      renderBf(r.bruteforce);
+      const box = document.getElementById('bfResult');
+      if (r.blocked) {
+        box.innerHTML = `<div class="result blocked"><div class="head">🚫 차단됨 (무차별 대입 보호)</div><div class="muted" style="font-size:13px;">${escapeHtml(r.note || '')}</div></div>`;
+      } else if (r.authenticated) {
+        box.innerHTML = `<div class="result ok"><div class="head">✅ 로그인 성공</div><div class="muted" style="font-size:13px;">${escapeHtml(r.note || '')}</div></div>`;
+      } else {
+        box.innerHTML = `<div class="result fail"><div class="head">❌ 로그인 실패</div><div class="muted" style="font-size:13px;">${escapeHtml(r.note || '비밀번호가 틀렸습니다.')}</div></div>`;
+      }
+      return r;
+    }
+
+    document.getElementById('bfTryBtn').addEventListener('click', tryLogin);
+    document.getElementById('bfAutoBtn').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      for (let i = 0; i < 10; i++) {
+        const r = await tryLogin();
+        if (r.blocked) break;
+        await new Promise((res) => setTimeout(res, 180));
+      }
+      btn.disabled = false;
+      toast('자동 공격 종료 — 잠금 단계를 확인하세요');
+    });
+    document.getElementById('bfResetBtn').addEventListener('click', async () => {
+      await postJSON('/api/reset', {});
+      renderBf(null);
+      document.getElementById('bfResult').innerHTML = '';
+      toast('초기화됨 — 잠금 카운터가 리셋되었습니다');
+    });
+
+    // ── 비밀번호 크랙 시간 시뮬레이터 ──
+    (function () {
+      const input = document.getElementById('pwInput');
+      const toggle = document.getElementById('pwToggle');
+      const bar = document.getElementById('pwBar').children;
+      const verdict = document.getElementById('pwVerdict');
+      const elCharset = document.getElementById('pwCharset');
+      const elSpace = document.getElementById('pwSpace');
+      const elEntropy = document.getElementById('pwEntropy');
+      const elOnline = document.getElementById('pwOnline');
+      const elBcrypt = document.getElementById('pwBcrypt');
+      const elGpu = document.getElementById('pwGpu');
+      if (!input) return;
+
+      const COMMON = new Set(['1234','12345','123456','1234567','12345678','123456789','1234567890',
+        '0000','1111','password','password1','passw0rd','qwerty','qwerty123','abc123','admin','guest',
+        'iloveyou','letmein','welcome','monkey','dragon','master','login','1q2w3e4r','asdf','asdfasdf',
+        'zxcvbnm','aaaa','test','test1234','1q2w3e','111111','000000','korea','samsung']);
+
+      function classes(pw) {
+        let size = 0, kinds = [];
+        if (/[a-z]/.test(pw)) { size += 26; kinds.push('소문자'); }
+        if (/[A-Z]/.test(pw)) { size += 26; kinds.push('대문자'); }
+        if (/[0-9]/.test(pw)) { size += 10; kinds.push('숫자'); }
+        if (/[^a-zA-Z0-9]/.test(pw)) { size += 33; kinds.push('기호'); }
+        return { size, kinds };
+      }
+
+      function bigNum(x) {
+        if (x === Infinity || x > 1e24) return '사실상 무한';
+        if (x < 1e4) return Math.round(x).toLocaleString();
+        const units = [[1e16,'경'],[1e12,'조'],[1e8,'억'],[1e4,'만']];
+        for (const [v, u] of units) {
+          if (x >= v) return (x / v).toFixed(x / v >= 100 ? 0 : 1).replace(/\.0$/, '') + u;
+        }
+        return Math.round(x).toLocaleString();
+      }
+
+      function humanTime(sec) {
+        if (sec < 1) return '1초 미만 (즉시)';
+        const names = ['초','분','시간','일','년','세기','백만 세기'];
+        const divs = [1, 60, 60, 24, 365, 100, 1e6];
+        let acc = sec, i = 0;
+        for (i = 0; i < divs.length - 1; i++) {
+          if (acc < divs[i + 1]) break;
+          acc /= divs[i + 1];
+        }
+        const name = names[i];
+        if (name === '백만 세기' || acc > 1e9) {
+          if (acc > 1e9) return '우주 나이보다 김 (사실상 불가)';
+          return Math.round(acc).toLocaleString() + ' ' + name;
+        }
+        const rounded = acc >= 100 ? Math.round(acc) : Math.round(acc * 10) / 10;
+        return rounded.toLocaleString() + name;
+      }
+
+      function timeColor(sec) {
+        if (sec < 60) return 'var(--danger)';
+        if (sec < 86400) return 'var(--warn)';
+        if (sec < 3.15e9) return 'var(--text)';
+        return 'var(--success)';
+      }
+
+      function paintBar(level, color) {
+        for (let i = 0; i < bar.length; i++) {
+          bar[i].style.background = i < level ? color : 'var(--border-soft)';
+        }
+      }
+
+      function update() {
+        const pw = input.value;
+        if (!pw) {
+          verdict.textContent = '비밀번호를 입력해 보세요.';
+          verdict.style.color = 'var(--muted)';
+          paintBar(0, '');
+          [elCharset, elSpace, elEntropy, elOnline, elBcrypt, elGpu].forEach((e) => {
+            e.textContent = '—'; e.style.color = 'var(--text)';
+          });
+          return;
+        }
+
+        const { size, kinds } = classes(pw);
+        const len = pw.length;
+        const entropy = len * Math.log2(size || 1);
+        const space = Math.pow(size || 1, len);
+        const guesses = space / 2;
+
+        elCharset.textContent = kinds.join('+') + ` (${size}종)`;
+        elSpace.textContent = bigNum(space);
+        elEntropy.textContent = Math.round(entropy) + ' bit';
+
+        const rates = { online: 100, bcrypt: 20000, gpu: 1e12 };
+        const isCommon = COMMON.has(pw.toLowerCase());
+
+        function setScn(el, rate) {
+          if (isCommon) { el.textContent = '즉시 (사전 공격)'; el.style.color = 'var(--danger)'; return; }
+          const sec = guesses / rate;
+          el.textContent = humanTime(sec);
+          el.style.color = timeColor(sec);
+        }
+        setScn(elOnline, rates.online);
+        setScn(elBcrypt, rates.bcrypt);
+        setScn(elGpu, rates.gpu);
+
+        let level, color, label;
+        const gpuSec = guesses / rates.gpu;
+        if (isCommon) {
+          level = 1; color = 'var(--danger)'; label = '☠️ 매우 취약 — 사전 공격 1순위, 즉시 뚫립니다';
+        } else if (len < 6 || entropy < 28) {
+          level = 1; color = 'var(--danger)'; label = '🔴 매우 약함 — 순식간에 뚫립니다';
+        } else if (gpuSec < 3600 || entropy < 40) {
+          level = 2; color = 'var(--danger)'; label = '🟠 약함 — 한 시간 안에 뚫립니다';
+        } else if (gpuSec < 2.6e6 || entropy < 60) {
+          level = 3; color = 'var(--warn)'; label = '🟡 보통 — 며칠~몇 주면 뚫립니다';
+        } else if (gpuSec < 3.15e9 || entropy < 80) {
+          level = 4; color = 'var(--success)'; label = '🟢 강함 — 수년이 걸립니다';
+        } else {
+          level = 5; color = 'var(--success)'; label = '🛡️ 매우 강함 — 현실적으로 뚫을 수 없습니다';
+        }
+        verdict.textContent = label;
+        verdict.style.color = color;
+        paintBar(level, color);
+      }
+
+      input.addEventListener('input', update);
+      toggle.addEventListener('click', () => {
+        const hidden = input.type === 'password';
+        input.type = hidden ? 'text' : 'password';
+        toggle.textContent = hidden ? '🙈 가리기' : '👁️ 보기';
+      });
+      update();
+    })();
+  </script>
+</body>
+</html>
