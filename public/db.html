@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DB 관리 — SQLi Guard</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>" />
+</head>
+<body>
+  <header class="nav">
+    <a class="brand" href="/">🛡️ SQLi<span class="dot">·</span>Guard</a>
+    <nav>
+      <a href="/">홈</a>
+      <a href="/dummy.html">더미 사이트</a>
+      <a href="/lab.html">보안 실습실</a>
+      <a href="/bruteforce.html">무차별 대입</a>
+      <a href="/db.html">DB 관리</a>
+      <a href="/guide.html">방어 가이드</a>
+    </nav>
+  </header>
+
+  <div class="container wide">
+    <div class="row between">
+      <div>
+        <h1 class="mb-0">🗄️ DB 관리</h1>
+        <p class="muted mt-0">테이블을 직접 들여다보고, <b>SQL을 실행</b>해 행·열을 추가·수정해 보세요. 언제든 <b>초기화</b>하면 원래 시드 데이터로 되돌아갑니다.</p>
+      </div>
+      <button class="btn btn-danger" id="resetBtn">↺ 초기화 (원래대로)</button>
+    </div>
+
+    <div class="grid" style="grid-template-columns: 280px 1fr; gap:18px; align-items:start;">
+      <!-- 테이블 목록 -->
+      <div class="card">
+        <h2 class="card-title mt-0">테이블</h2>
+        <div id="tableList" class="muted">불러오는 중…</div>
+      </div>
+
+      <!-- 메인 -->
+      <div>
+        <!-- SQL 콘솔 -->
+        <div class="card">
+          <div class="row between">
+            <h2 class="card-title mt-0">SQL 콘솔</h2>
+            <span class="badge badge-warn">로컬 데모 · 모든 SQL 실행 가능</span>
+          </div>
+
+          <div class="field">
+            <label>빠른 템플릿 <span class="faint">(현재 선택 테이블 기준으로 채워집니다)</span></label>
+            <div id="templates" class="row" style="gap:6px;flex-wrap:wrap;"></div>
+          </div>
+
+          <div class="field">
+            <textarea id="sqlInput" rows="5" spellcheck="false"
+              style="width:100%;font-family:var(--mono,monospace);font-size:13.5px;resize:vertical;"
+              placeholder="예) INSERT INTO users (username, password, email, role) VALUES ('neo', 'pw123', 'neo@x.kr', 'user');"></textarea>
+          </div>
+
+          <div class="row">
+            <button class="btn btn-primary" id="runBtn">▶ 실행 (⌘/Ctrl+Enter)</button>
+            <button class="btn btn-ghost" id="clearBtn">지우기</button>
+          </div>
+
+          <div id="execResult" style="margin-top:14px;"></div>
+        </div>
+
+        <!-- 테이블 뷰 -->
+        <div class="card mt">
+          <div class="row between">
+            <h2 class="card-title mt-0" id="viewTitle">테이블 내용</h2>
+            <span class="faint" id="viewMeta"></span>
+          </div>
+          <div id="schemaView"></div>
+          <div id="tableView"><p class="muted">왼쪽에서 테이블을 선택하세요.</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="footer">🛡️ SQLi·Guard — DB 관리는 교육용 로컬 샌드박스입니다. 초기화로 항상 복구됩니다.</footer>
+
+  <script src="/js/app.js"></script>
+  <script>
+    const { api, postJSON, escapeHtml, renderTable, toast } = window.App;
+    let current = null; // 현재 선택된 테이블 이름
+
+    // 테이블 목록 로드
+    async function loadTables() {
+      const d = await api('/api/db/tables');
+      const el = document.getElementById('tableList');
+      if (!d.tables || !d.tables.length) { el.innerHTML = '<p class="muted">테이블 없음</p>'; return; }
+      el.innerHTML = d.tables.map((t) => `
+        <button class="btn btn-sm table-btn ${t.name === current ? 'btn-primary' : ''}" data-t="${escapeHtml(t.name)}" style="width:100%;justify-content:space-between;margin-bottom:6px;">
+          <span>🗂️ ${escapeHtml(t.name)}</span>
+          <span class="faint">${t.count}행 · ${t.columns.length}열</span>
+        </button>`).join('');
+      el.querySelectorAll('.table-btn').forEach((b) =>
+        b.addEventListener('click', () => selectTable(b.dataset.t)));
+    }
+
+    // 테이블 선택 → 스키마 + 내용 표시
+    async function selectTable(name) {
+      current = name;
+      const d = await api('/api/db/table/' + encodeURIComponent(name));
+      document.querySelectorAll('.table-btn').forEach((b) =>
+        b.classList.toggle('btn-primary', b.dataset.t === name));
+      renderTemplates();
+      if (!d.ok) { document.getElementById('tableView').innerHTML = `<p class="muted">${escapeHtml(d.error)}</p>`; return; }
+
+      document.getElementById('viewTitle').textContent = '🗂️ ' + name;
+      document.getElementById('viewMeta').textContent = `${d.count}행 · ${d.columns.length}열`;
+
+      // 스키마(열 정의)
+      const schema = d.columns.map((c) =>
+        `<span class="pill">${escapeHtml(c.name)} <span class="faint">${escapeHtml(c.type || '')}${c.pk ? ' · PK' : ''}${c.notnull ? ' · NN' : ''}</span></span>`
+      ).join(' ');
+      document.getElementById('schemaView').innerHTML =
+        `<div class="muted" style="font-size:12.5px;font-weight:700;margin-bottom:6px;">열 구조</div><div class="pill-row">${schema}</div>`;
+
+      const leak = d.columns.some((c) => c.name === 'password')
+        ? ['password', 'secret'].filter((c) => d.columns.find((x) => x.name === c)) : [];
+      document.getElementById('tableView').innerHTML = renderTable(d.rows, { leakCols: leak });
+    }
+
+    // 빠른 템플릿
+    function renderTemplates() {
+      const box = document.getElementById('templates');
+      const t = current || 'users';
+      const tpl = [
+        ['➕ 행 추가', current === 'posts'
+          ? `INSERT INTO posts (title, body, author, visible)\nVALUES ('새 글 제목', '본문 내용', 'guest', 1);`
+          : `INSERT INTO users (username, password, email, role, secret)\nVALUES ('neo', 'pw123!', 'neo@dummy-corp.kr', 'user', '없음');`],
+        ['🏛️ 열 추가', `ALTER TABLE ${t} ADD COLUMN memo TEXT;`],
+        ['✏️ 값 수정', current === 'posts'
+          ? `UPDATE posts SET visible = 0 WHERE id = 1;`
+          : `UPDATE users SET role = 'admin' WHERE username = 'guest';`],
+        ['🗑️ 행 삭제', current === 'posts'
+          ? `DELETE FROM posts WHERE id = 5;`
+          : `DELETE FROM users WHERE username = 'guest';`],
+        ['🔍 전체 조회', `SELECT * FROM ${t};`],
+        ['🆕 새 테이블', `CREATE TABLE notes (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  content TEXT\n);`],
+      ];
+      box.innerHTML = tpl.map((p, i) => `<button class="btn btn-sm btn-ghost" data-i="${i}">${p[0]}</button>`).join('');
+      box.querySelectorAll('button').forEach((b) =>
+        b.addEventListener('click', () => { document.getElementById('sqlInput').value = tpl[b.dataset.i][1]; }));
+    }
+
+    // SQL 실행
+    async function runSql() {
+      const sql = document.getElementById('sqlInput').value.trim();
+      const box = document.getElementById('execResult');
+      if (!sql) { toast('SQL을 입력하세요', 'bad'); return; }
+      box.innerHTML = '<p class="muted"><span class="spinner"></span> 실행 중…</p>';
+      const r = await postJSON('/api/db/exec', { sql });
+
+      if (!r.ok) {
+        box.innerHTML = `<div class="result fail"><div class="head">⛔ 오류</div><div class="muted" style="font-size:13px;">${escapeHtml(r.error)}</div></div>`;
+        return;
+      }
+      if (r.kind === 'select') {
+        box.innerHTML = `<div class="result ok"><div class="head">✅ 조회 완료 — ${r.count}행</div></div>`
+          + renderTable(r.rows, {});
+      } else {
+        box.innerHTML = `<div class="result ok"><div class="head">✅ 실행 완료</div><div class="muted" style="font-size:13px;">${escapeHtml(r.note || '')}</div></div>`;
+        toast('실행 완료', 'ok');
+      }
+      // 데이터가 바뀌었을 수 있으니 목록·뷰 갱신
+      await loadTables();
+      if (current) await selectTable(current);
+    }
+
+    document.getElementById('runBtn').addEventListener('click', runSql);
+    document.getElementById('clearBtn').addEventListener('click', () => {
+      document.getElementById('sqlInput').value = '';
+      document.getElementById('execResult').innerHTML = '';
+    });
+    document.getElementById('sqlInput').addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); runSql(); }
+    });
+    document.getElementById('resetBtn').addEventListener('click', async () => {
+      await postJSON('/api/reset', {});
+      document.getElementById('execResult').innerHTML = '';
+      toast('초기화 완료 — 원래 데이터로 복구', 'ok');
+      await loadTables();
+      if (current) await selectTable(current);
+    });
+
+    // 초기 로드
+    (async () => {
+      await loadTables();
+      renderTemplates();
+      await selectTable('users');
+    })();
+  </script>
+</body>
+</html>
