@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>보안 실습실 — SQLi Guard</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>" />
+</head>
+<body>
+  <header class="nav">
+    <a class="brand" href="/">🛡️ SQLi<span class="dot">·</span>Guard</a>
+    <nav>
+      <a href="/">홈</a>
+      <a href="/dummy.html">더미 사이트</a>
+      <a href="/lab.html">보안 실습실</a>
+      <a href="/guide.html">방어 가이드</a>
+    </nav>
+  </header>
+
+  <div class="container wide">
+    <h1 class="mb-0">🧪 보안 실습실</h1>
+    <p class="muted mt-0">같은 공격 입력을 <b>취약 / 화이트리스트 / ORM / 파라미터화</b> 4가지 방식으로 실행해, 생성되는 SQL과 결과를 직접 비교합니다.</p>
+
+    <div class="grid" style="grid-template-columns: 1fr 1fr; gap:18px; align-items:start;">
+      <!-- 컨트롤 -->
+      <div class="card">
+        <h2 class="card-title mt-0">공격 시나리오</h2>
+        <div class="segmented" id="scenarioSeg" style="margin-bottom:16px;">
+          <button data-sc="login" class="active">🔓 로그인 인증 우회</button>
+          <button data-sc="search">📤 UNION 데이터 추출</button>
+        </div>
+
+        <!-- 로그인 입력 -->
+        <div id="loginInputs">
+          <div class="field">
+            <label>아이디 (페이로드 주입 지점)</label>
+            <input type="text" id="inUser" value="admin' --" />
+          </div>
+          <div class="field">
+            <label>비밀번호</label>
+            <input type="text" id="inPass" value="anything" />
+          </div>
+        </div>
+
+        <!-- 검색 입력 -->
+        <div id="searchInputs" class="hidden">
+          <div class="field">
+            <label>검색어 (페이로드 주입 지점)</label>
+            <input type="text" id="inQ" value="%' UNION SELECT id, username, password, email FROM users -- " />
+          </div>
+        </div>
+
+        <div class="field">
+          <label>빠른 페이로드</label>
+          <div id="quickPayloads" class="row" style="gap:6px;"></div>
+        </div>
+
+        <div class="row between mt">
+          <div class="row" style="gap:14px;">
+            <div class="segmented" id="modeSeg">
+              <button data-mode="vulnerable" class="active">취약</button>
+              <button data-mode="whitelist">화이트리스트</button>
+              <button data-mode="orm">ORM</button>
+              <button data-mode="parameterized">파라미터화</button>
+            </div>
+            <label class="switch"><span class="muted" style="font-weight:700;">🔥WAF</span><input type="checkbox" id="wafToggle" /><span class="track"></span></label>
+          </div>
+        </div>
+        <div class="row mt">
+          <button class="btn btn-primary" id="runBtn">▶ 선택 모드로 실행</button>
+          <button class="btn" id="compareBtn">📊 4가지 모드 비교</button>
+        </div>
+      </div>
+
+      <!-- 단일 실행 결과 -->
+      <div class="card">
+        <h2 class="card-title mt-0">실행 결과</h2>
+        <div id="single"><p class="muted">왼쪽에서 모드를 고르고 <b>실행</b>을 눌러보세요.</p></div>
+      </div>
+    </div>
+
+    <!-- 비교 표 -->
+    <div class="card mt hidden" id="compareCard">
+      <h2 class="card-title mt-0">📊 4가지 모드 비교</h2>
+      <p class="muted mt-0">동일한 입력을 네 가지 방식으로 실행한 결과입니다. 취약 모드만 공격이 성공하고, 방어 모드는 모두 막아내는 것을 확인하세요.</p>
+      <div class="table-wrap"><table class="data" id="compareTable"></table></div>
+    </div>
+
+    <!-- DB 들여다보기 -->
+    <div class="card mt">
+      <div class="row between">
+        <h2 class="card-title mt-0">🗄️ 공격자가 노리는 실제 데이터</h2>
+        <div class="row" style="gap:8px;">
+          <button class="btn btn-sm" id="showUsers">users 테이블</button>
+          <button class="btn btn-sm" id="showPosts">posts 테이블</button>
+        </div>
+      </div>
+      <p class="muted mt-0">실제 공격에서는 이 데이터가 보이지 않습니다. 인젝션은 바로 이 숨겨진 데이터를 끌어내는 행위입니다.</p>
+      <div id="dbView"></div>
+    </div>
+  </div>
+
+  <footer class="footer">🛡️ SQLi·Guard — 보안 실습실</footer>
+
+  <script src="/js/app.js"></script>
+  <script>
+    const { postJSON, api, escapeHtml, renderTable, toast } = window.App;
+    let scenario = 'login';
+    let mode = 'vulnerable';
+    let waf = false;
+
+    const quick = {
+      login: [
+        ["admin' --", "관리자 탈취"],
+        ["' OR 1=1 -- ", "첫 계정 우회"],
+        ["' OR '1'='1' -- ", "항상 참"],
+        ["guest", "정상 로그인"],
+      ],
+      search: [
+        ["%' UNION SELECT id, username, password, email FROM users -- ", "계정 유출"],
+        ["%' OR 1=1 -- ", "비공개 글 노출"],
+        ["안내", "정상 검색"],
+      ],
+    };
+
+    function renderQuick() {
+      document.getElementById('quickPayloads').innerHTML = quick[scenario]
+        .map((p, i) => `<button class="btn btn-sm btn-ghost" data-i="${i}">${escapeHtml(p[1])}</button>`).join('');
+    }
+    document.getElementById('quickPayloads').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-i]'); if (!b) return;
+      const val = quick[scenario][b.dataset.i][0];
+      if (scenario === 'login') {
+        document.getElementById('inUser').value = val;
+        document.getElementById('inPass').value = val === 'guest' ? 'guest' : 'anything';
+      } else { document.getElementById('inQ').value = val; }
+      toast('페이로드 적용됨');
+    });
+
+    document.getElementById('scenarioSeg').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-sc]'); if (!b) return;
+      scenario = b.dataset.sc;
+      document.querySelectorAll('#scenarioSeg button').forEach((x) => x.classList.toggle('active', x === b));
+      document.getElementById('loginInputs').classList.toggle('hidden', scenario !== 'login');
+      document.getElementById('searchInputs').classList.toggle('hidden', scenario !== 'search');
+      renderQuick();
+    });
+    document.getElementById('modeSeg').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-mode]'); if (!b) return;
+      mode = b.dataset.mode;
+      document.querySelectorAll('#modeSeg button').forEach((x) => x.classList.toggle('active', x === b));
+    });
+    document.getElementById('wafToggle').addEventListener('change', (e) => { waf = e.target.checked; });
+
+    async function runOne(m) {
+      if (scenario === 'login') {
+        return postJSON('/api/login', {
+          username: document.getElementById('inUser').value,
+          password: document.getElementById('inPass').value, mode: m, waf,
+        });
+      }
+      const params = new URLSearchParams({ q: document.getElementById('inQ').value, mode: m, waf: waf ? 'on' : 'off' });
+      return api('/api/search?' + params.toString());
+    }
+
+    function sqlBox(r) {
+      let html = `<pre class="sql">${r.queryHtml || escapeHtml(r.sql || '—')}</pre>`;
+      if (r.params) html += `<div class="faint" style="font-size:12.5px;">파라미터: <code>${escapeHtml(JSON.stringify(r.params))}</code></div>`;
+      return html;
+    }
+
+    // 결과를 한 줄 평가로 변환
+    function verdict(r) {
+      if (r.blocked) return { cls: 'blocked', label: `🚫 차단 (${r.blockedBy === 'waf' ? 'WAF' : r.blockedBy})`, danger: false };
+      if (scenario === 'login') {
+        if (r.authenticated) {
+          const admin = r.user && r.user.role === 'admin';
+          return { cls: 'fail', label: `⚠️ 인증 성공${admin ? ' (admin 탈취!)' : ''}`, danger: true };
+        }
+        return { cls: 'ok', label: '✅ 로그인 실패(공격 차단)', danger: false };
+      } else {
+        const leaked = (r.rows || []).some((row) => 'password' in row);
+        if (leaked) return { cls: 'fail', label: `⚠️ 데이터 유출 (${r.count}행)`, danger: true };
+        return { cls: 'ok', label: `✅ 정상 결과 (${r.count}건)`, danger: false };
+      }
+    }
+
+    document.getElementById('runBtn').addEventListener('click', async () => {
+      const box = document.getElementById('single');
+      box.innerHTML = '<p class="muted"><span class="spinner"></span> 실행 중…</p>';
+      const r = await runOne(mode);
+      const v = verdict(r);
+      let extra = '';
+      if (scenario === 'search' && r.rows && r.rows.length) extra = renderTable(r.rows, { leakCols: ['password'] });
+      box.innerHTML = `<div class="result ${v.cls}"><div class="head">${v.label}</div>
+        <div class="muted" style="font-size:13px;">${escapeHtml(r.note || '')}</div></div>
+        <div class="muted" style="font-size:12.5px;font-weight:700;margin:12px 0 4px;">생성된 쿼리</div>${sqlBox(r)}${extra}`;
+    });
+
+    document.getElementById('compareBtn').addEventListener('click', async () => {
+      const card = document.getElementById('compareCard');
+      const table = document.getElementById('compareTable');
+      card.classList.remove('hidden');
+      table.innerHTML = '<tr><td class="muted"><span class="spinner"></span> 4개 모드 실행 중…</td></tr>';
+      const modes = ['vulnerable', 'whitelist', 'orm', 'parameterized'];
+      const labels = { vulnerable: '취약(무방비)', whitelist: '화이트리스트', orm: 'ORM', parameterized: '파라미터화' };
+      const results = await Promise.all(modes.map(runOne));
+      let html = '<thead><tr><th>모드</th><th>결과</th><th>생성된 쿼리</th></tr></thead><tbody>';
+      results.forEach((r, i) => {
+        const v = verdict(r);
+        const color = v.danger ? 'var(--danger)' : v.cls === 'blocked' ? 'var(--warn)' : 'var(--success)';
+        html += `<tr>
+          <td><b>${labels[modes[i]]}</b></td>
+          <td style="color:${color};font-weight:700;white-space:nowrap;">${v.label}</td>
+          <td><pre class="sql" style="margin:0;font-size:12px;">${r.queryHtml || escapeHtml(r.sql || '—')}</pre>${r.params ? `<span class="faint" style="font-size:11.5px;">params: ${escapeHtml(JSON.stringify(r.params))}</span>` : ''}</td>
+        </tr>`;
+      });
+      html += '</tbody>';
+      table.innerHTML = html;
+      card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+
+    // DB 들여다보기
+    document.getElementById('showUsers').addEventListener('click', async () => {
+      const d = await api('/api/users');
+      document.getElementById('dbView').innerHTML =
+        '<div class="callout danger" style="margin:10px 0;"><span class="ico">🔓</span><div>비밀번호가 평문으로 저장돼 있습니다. 인젝션으로 이 테이블이 유출되면 모든 계정이 그대로 탈취됩니다.</div></div>' +
+        renderTable(d.rows, { leakCols: ['password', 'secret'] });
+    });
+    document.getElementById('showPosts').addEventListener('click', async () => {
+      const d = await api('/api/posts');
+      document.getElementById('dbView').innerHTML = renderTable(d.rows, { leakCols: [] });
+    });
+
+    renderQuick();
+  </script>
+</body>
+</html>

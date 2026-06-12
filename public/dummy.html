@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>더미 사이트 공격 — SQLi Guard</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>" />
+</head>
+<body>
+  <header class="nav">
+    <a class="brand" href="/">🛡️ SQLi<span class="dot">·</span>Guard</a>
+    <nav>
+      <a href="/">홈</a>
+      <a href="/dummy.html">더미 사이트</a>
+      <a href="/lab.html">보안 실습실</a>
+      <a href="/guide.html">방어 가이드</a>
+    </nav>
+  </header>
+
+  <div class="container wide">
+    <div class="row between">
+      <div>
+        <h1 class="mb-0">🎯 더미 사이트 공격 실습</h1>
+        <p class="muted mt-0">일부러 취약하게 만든 회원 포털입니다. 오른쪽 페이로드를 복사해 로그인·검색창을 직접 뚫어보세요.</p>
+      </div>
+      <button class="btn btn-sm btn-ghost" id="resetBtn" title="DB와 시도 횟수를 초기화">♻️ 초기화</button>
+    </div>
+
+    <!-- 사이트 방어 설정 -->
+    <div class="card" style="padding:14px 18px;">
+      <div class="row between">
+        <div class="row" style="gap:10px;">
+          <span class="muted" style="font-weight:700;">이 사이트의 방어 설정:</span>
+          <div class="segmented" id="modeSeg">
+            <button data-mode="vulnerable" class="active">취약(무방비)</button>
+            <button data-mode="whitelist">화이트리스트</button>
+            <button data-mode="orm">ORM</button>
+            <button data-mode="parameterized">파라미터화</button>
+          </div>
+        </div>
+        <label class="switch">
+          <span class="muted" style="font-weight:700;">🔥 WAF</span>
+          <input type="checkbox" id="wafToggle" />
+          <span class="track"></span>
+        </label>
+      </div>
+      <p class="faint mt-0" style="margin-bottom:0;font-size:13px;">
+        기본값은 <b>취약(무방비)</b>입니다. 공격이 성공하는 걸 확인한 뒤 모드를 <b>파라미터화/ORM</b>으로 바꾸거나 <b>WAF</b>를 켜고
+        같은 페이로드를 다시 넣어, 공격이 막히는 걸 비교해 보세요.
+      </p>
+    </div>
+
+    <div class="grid" style="grid-template-columns: 1.3fr 1fr; gap:18px; align-items:start;">
+      <!-- ============ 왼쪽: 포털 ============ -->
+      <div>
+        <!-- 로그인 -->
+        <div class="card">
+          <div class="row between">
+            <h2 class="card-title mt-0" style="margin-bottom:4px;">🏢 두루技(DummyCorp) 회원 로그인</h2>
+            <span class="badge badge-vuln" id="modeBadge">취약 모드</span>
+          </div>
+          <div id="sessionBox" class="hidden"></div>
+          <div id="loginForm">
+            <div class="field">
+              <label>아이디</label>
+              <input type="text" id="loginUser" placeholder="아이디를 입력하세요" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label>비밀번호</label>
+              <input type="password" id="loginPass" placeholder="비밀번호를 입력하세요" autocomplete="off" />
+            </div>
+            <div class="row">
+              <button class="btn btn-primary" id="loginBtn">로그인</button>
+              <span class="faint" style="font-size:13px;">정상 계정 예시: <code>guest</code> / <code>guest</code></span>
+            </div>
+            <div class="bf-bar" id="bfBar"></div>
+          </div>
+          <div id="loginResult"></div>
+        </div>
+
+        <!-- 관리자 패널(인젝션으로 admin 탈취 시 노출) -->
+        <div class="card hidden" id="adminPanel" style="border-color:var(--danger-bd);">
+          <h2 class="card-title mt-0" style="color:var(--danger);">🔓 관리자 패널 — 유출된 전체 회원 DB</h2>
+          <p class="muted mt-0">관리자 권한을 탈취하면 공격자는 이렇게 <b>모든 회원의 비밀번호·개인정보</b>에 접근할 수 있습니다. 비밀번호를 평문 저장한 탓에 피해가 그대로 노출됩니다.</p>
+          <div id="adminData"></div>
+        </div>
+
+        <!-- 게시판 검색 -->
+        <div class="card">
+          <h2 class="card-title mt-0">📰 공지사항 검색</h2>
+          <div class="field-row" style="margin-bottom:10px;">
+            <input type="text" id="searchInput" placeholder="제목으로 검색 (예: 안내)" autocomplete="off" />
+            <button class="btn" id="searchBtn" style="flex:0 0 auto;">검색</button>
+          </div>
+          <div id="searchResult"></div>
+        </div>
+
+        <!-- 회원가입 -->
+        <details class="card">
+          <summary style="cursor:pointer;font-weight:700;">➕ 회원가입 (펼치기)</summary>
+          <div style="margin-top:14px;">
+            <div class="field-row">
+              <div class="field"><label>아이디</label><input type="text" id="suUser" autocomplete="off" /></div>
+              <div class="field"><label>비밀번호</label><input type="text" id="suPass" autocomplete="off" /></div>
+            </div>
+            <div class="field"><label>이메일</label><input type="email" id="suEmail" autocomplete="off" /></div>
+            <button class="btn" id="signupBtn">가입하기</button>
+            <div id="signupResult"></div>
+          </div>
+        </details>
+      </div>
+
+      <!-- ============ 오른쪽: 공격 도우미 ============ -->
+      <div>
+        <div class="card" style="border-color:var(--warn-bd);">
+          <h2 class="card-title mt-0">🧪 공격 페이로드 (복사용)</h2>
+          <p class="faint mt-0" style="font-size:13px;">칩을 누르면 해당 입력칸에 자동으로 채워집니다. <b>📋</b>는 클립보드 복사.</p>
+
+          <div class="chip-group">
+            <div class="label">① 로그인 인증 우회 (아이디 칸)</div>
+            <div class="chip" data-target="loginUser" data-pass="anything">
+              <code>admin' --</code>
+              <button class="btn btn-sm copy">📋</button>
+            </div>
+            <div class="chip" data-target="loginUser" data-pass="anything">
+              <code>' OR 1=1 -- </code>
+              <button class="btn btn-sm copy">📋</button>
+            </div>
+            <div class="chip" data-target="loginUser" data-pass="anything">
+              <code>' OR '1'='1' -- </code>
+              <button class="btn btn-sm copy">📋</button>
+            </div>
+            <p class="faint" style="font-size:12.5px;margin:6px 2px 0;"><code>admin' --</code> 는 비밀번호 검사를 주석 처리해 관리자로 바로 로그인됩니다.</p>
+          </div>
+
+          <div class="chip-group">
+            <div class="label">② 회원정보 통째로 추출 (검색창)</div>
+            <div class="chip" data-target="searchInput">
+              <code>%' UNION SELECT id, username, password, email FROM users -- </code>
+              <button class="btn btn-sm copy">📋</button>
+            </div>
+            <p class="faint" style="font-size:12.5px;margin:6px 2px 0;">공지 검색 쿼리에 <code>UNION</code>을 붙여 users 테이블(아이디·비밀번호·이메일)을 함께 끌어냅니다.</p>
+          </div>
+
+          <div class="chip-group">
+            <div class="label">③ 숨겨진 비공개 글 보기 (검색창)</div>
+            <div class="chip" data-target="searchInput">
+              <code>%' OR 1=1 -- </code>
+              <button class="btn btn-sm copy">📋</button>
+            </div>
+            <p class="faint" style="font-size:12.5px;margin:6px 2px 0;"><code>visible=1</code> 조건을 무력화해 <code>[비공개]</code> 게시글까지 노출시킵니다.</p>
+          </div>
+
+          <div class="chip-group" style="margin-bottom:0;">
+            <div class="label">④ 무차별 대입 체험 (로그인)</div>
+            <div class="chip" data-target="loginUser" data-pass="wrong-pass">
+              <code>minji</code> + 아무 비번
+              <button class="btn btn-sm copy">📋</button>
+            </div>
+            <p class="faint" style="font-size:12.5px;margin:6px 2px 0;">존재하는 계정에 틀린 비밀번호로 <b>로그인 버튼을 여러 번</b> 눌러보세요. 실패가 쌓이면 경고→잠금이 뜹니다.</p>
+          </div>
+        </div>
+
+        <div class="callout info mt">
+          <span class="ico">💡</span>
+          <div style="font-size:13.5px;">로그인/검색을 실행하면 <b>실제로 DB에 날아간 SQL</b>이 결과 아래에 표시됩니다. 빨갛게 칠해진 부분이 공격자가 주입한 입력입니다.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="footer">🛡️ SQLi·Guard — 더미 사이트는 학습을 위해 의도적으로 취약하게 만들어졌습니다.</footer>
+
+  <script src="/js/app.js"></script>
+  <script>
+    const { postJSON, api, escapeHtml, copyText, toast, renderTable } = window.App;
+    let mode = 'vulnerable';
+    let waf = false;
+
+    const modeLabels = {
+      vulnerable: '취약 모드', whitelist: '화이트리스트', orm: 'ORM', parameterized: '파라미터화',
+    };
+
+    // 모드 세그먼트
+    document.getElementById('modeSeg').addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-mode]');
+      if (!btn) return;
+      mode = btn.dataset.mode;
+      document.querySelectorAll('#modeSeg button').forEach((b) => b.classList.toggle('active', b === btn));
+      const badge = document.getElementById('modeBadge');
+      badge.textContent = modeLabels[mode];
+      badge.className = 'badge ' + (mode === 'vulnerable' ? 'badge-vuln' : 'badge-safe');
+    });
+    document.getElementById('wafToggle').addEventListener('change', (e) => { waf = e.target.checked; });
+
+    // 페이로드 칩: 클릭 → 채우기, 📋 → 복사
+    document.querySelectorAll('.chip').forEach((chip) => {
+      const code = chip.querySelector('code').textContent.replace(' + 아무 비번', '').trim();
+      chip.querySelector('.copy').addEventListener('click', (e) => { e.stopPropagation(); copyText(code); });
+      chip.addEventListener('click', () => {
+        const target = chip.dataset.target;
+        document.getElementById(target).value = code;
+        if (chip.dataset.pass) {
+          const p = chip.dataset.pass === 'wrong-pass' ? 'wrongpass123' : 'x';
+          document.getElementById('loginPass').value = p;
+        }
+        toast('입력칸에 채웠습니다 ✏️');
+        document.getElementById(target).focus();
+      });
+    });
+
+    // 실행된 SQL 표시 박스
+    function sqlBox(r) {
+      if (!r.queryHtml && !r.sql) return '';
+      let html = `<div style="margin-top:10px;"><div class="muted" style="font-size:12.5px;font-weight:700;margin-bottom:4px;">실행된 쿼리</div><pre class="sql">${r.queryHtml || escapeHtml(r.sql)}</pre>`;
+      if (r.params) html += `<div class="faint" style="font-size:12.5px;">바인딩 파라미터: <code>${escapeHtml(JSON.stringify(r.params))}</code></div>`;
+      html += '</div>';
+      return html;
+    }
+
+    // 브루트포스 경고 바
+    function renderBf(bf) {
+      const bar = document.getElementById('bfBar');
+      if (!bf || bf.count === 0) { bar.className = 'bf-bar'; bar.innerHTML = ''; return; }
+      const pct = Math.min(100, Math.round((bf.count / bf.lockAt) * 100));
+      let msg = '';
+      if (bf.level === 'locked') msg = `🔒 계정 잠금! 반복된 로그인 실패가 감지되어 일시적으로 차단되었습니다.`;
+      else if (bf.level === 'danger') msg = `🚨 위험: 로그인 ${bf.count}회 실패. ${bf.remainingBeforeLock}회 더 실패하면 계정이 잠깁니다.`;
+      else msg = `⚠️ 주의: 로그인 ${bf.count}회 실패. 무차별 대입 공격이 의심됩니다.`;
+      bar.className = 'bf-bar show ' + (bf.level === 'ok' ? 'warn' : bf.level);
+      bar.innerHTML = `${msg}<div class="bf-meter"><span style="width:${pct}%"></span></div>`;
+    }
+
+    // 로그인
+    document.getElementById('loginBtn').addEventListener('click', async () => {
+      const username = document.getElementById('loginUser').value;
+      const password = document.getElementById('loginPass').value;
+      const box = document.getElementById('loginResult');
+      box.innerHTML = '<p class="muted"><span class="spinner"></span> 처리 중…</p>';
+      const r = await postJSON('/api/login', { username, password, mode, waf });
+      renderBf(r.bruteforce);
+
+      if (r.blocked) {
+        box.innerHTML = `<div class="result blocked"><div class="head">🚫 차단됨 (${r.blockedBy === 'waf' ? 'WAF' : '무차별 대입 보호'})</div><div>${escapeHtml(r.note)}</div>${r.blockedBy==='waf'&&r.wafVerdict?`<div class="faint mt" style="font-size:12.5px;">감지 시그니처: ${escapeHtml(r.wafVerdict.signature)}</div>`:''}</div>`;
+        hideAdmin();
+        return;
+      }
+      if (r.authenticated) {
+        const isAdmin = r.user.role === 'admin';
+        box.innerHTML = `<div class="result ok"><div class="head">✅ 로그인 성공</div>
+          <div><b>${escapeHtml(r.user.username)}</b> 님으로 로그인되었습니다 ${isAdmin ? '<span class="badge badge-admin">ADMIN</span>' : '<span class="badge badge-user">USER</span>'}</div>
+          <div class="muted" style="font-size:13px;margin-top:4px;">${escapeHtml(r.note)}</div>
+          ${sqlBox(r)}</div>`;
+        showSession(r.user);
+        if (isAdmin) loadAdminData(); else hideAdmin();
+      } else {
+        box.innerHTML = `<div class="result fail"><div class="head">❌ 로그인 실패</div><div class="muted" style="font-size:13px;">${escapeHtml(r.note)}</div>${sqlBox(r)}</div>`;
+        hideAdmin();
+      }
+    });
+
+    function showSession(user) {
+      const s = document.getElementById('sessionBox');
+      s.className = 'result ok';
+      s.innerHTML = `<div class="row between"><span>현재 로그인: <b>${escapeHtml(user.username)}</b> (${escapeHtml(user.role)})</span><button class="btn btn-sm btn-ghost" id="logoutBtn">로그아웃</button></div>`;
+      document.getElementById('loginForm').classList.add('hidden');
+      document.getElementById('logoutBtn').addEventListener('click', () => {
+        s.className = 'hidden'; document.getElementById('loginForm').classList.remove('hidden');
+        document.getElementById('loginResult').innerHTML = ''; hideAdmin();
+      });
+    }
+    function hideAdmin() { document.getElementById('adminPanel').classList.add('hidden'); }
+    async function loadAdminData() {
+      const panel = document.getElementById('adminPanel');
+      panel.classList.remove('hidden');
+      const d = await api('/api/users');
+      document.getElementById('adminData').innerHTML = renderTable(d.rows, { leakCols: ['password', 'secret'] });
+    }
+
+    // 검색
+    document.getElementById('searchBtn').addEventListener('click', doSearch);
+    document.getElementById('searchInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); });
+    async function doSearch() {
+      const q = document.getElementById('searchInput').value;
+      const box = document.getElementById('searchResult');
+      box.innerHTML = '<p class="muted"><span class="spinner"></span> 검색 중…</p>';
+      const params = new URLSearchParams({ q, mode, waf: waf ? 'on' : 'off' });
+      const r = await api('/api/search?' + params.toString());
+      if (r.blocked) {
+        box.innerHTML = `<div class="result blocked"><div class="head">🚫 WAF 차단</div><div>${escapeHtml(r.note)}</div></div>`;
+        return;
+      }
+      const leaked = r.rows.some((row) => 'password' in row || (row.author && String(row.author).includes('@')));
+      box.innerHTML =
+        `<div class="result ${leaked ? 'fail' : 'ok'}"><div class="head">${leaked ? '🔓 데이터 유출 발생!' : `🔎 검색 결과 ${r.count}건`}</div>
+         <div class="muted" style="font-size:13px;">${escapeHtml(r.note)}</div>${sqlBox(r)}</div>
+         ${renderTable(r.rows, { leakCols: ['password'] })}`;
+    }
+
+    // 회원가입
+    document.getElementById('signupBtn').addEventListener('click', async () => {
+      const r = await postJSON('/api/signup', {
+        username: document.getElementById('suUser').value,
+        password: document.getElementById('suPass').value,
+        email: document.getElementById('suEmail').value, mode,
+      });
+      const box = document.getElementById('signupResult');
+      box.innerHTML = r.ok
+        ? `<div class="result ok mt"><div class="head">✅ ${escapeHtml(r.note || '가입 완료')}</div>${sqlBox(r)}</div>`
+        : `<div class="result fail mt"><div class="head">❌ ${escapeHtml(r.reason)}</div></div>`;
+    });
+
+    // 초기화
+    document.getElementById('resetBtn').addEventListener('click', async () => {
+      await postJSON('/api/reset', {});
+      document.getElementById('loginResult').innerHTML = '';
+      document.getElementById('searchResult').innerHTML = '';
+      document.getElementById('signupResult').innerHTML = '';
+      document.getElementById('sessionBox').className = 'hidden';
+      document.getElementById('loginForm').classList.remove('hidden');
+      hideAdmin(); renderBf(null);
+      toast('초기화 완료 ♻️', 'ok');
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>방어 가이드 — SQLi Guard</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>" />
+</head>
+<body>
+  <header class="nav">
+    <a class="brand" href="/">🛡️ SQLi<span class="dot">·</span>Guard</a>
+    <nav>
+      <a href="/">홈</a>
+      <a href="/dummy.html">더미 사이트</a>
+      <a href="/lab.html">보안 실습실</a>
+      <a href="/guide.html">방어 가이드</a>
+    </nav>
+  </header>
+
+  <div class="container wide">
+    <h1 class="mb-0">📖 SQL 인젝션 방어 가이드</h1>
+    <p class="muted mt-0">공격이 왜 통하는지(원리)부터, 무엇으로 어떻게 막는지(방어)까지 정리했습니다. 코드 예시의 <span style="color:var(--danger)">빨간 부분</span>이 위험한 결합 지점입니다.</p>
+
+    <div class="guide-layout">
+      <!-- TOC -->
+      <aside class="toc">
+        <div class="muted" style="font-weight:700;margin:0 10px 8px;">목차</div>
+        <a href="#what">1. SQL 인젝션이란</a>
+        <a href="#why">2. 왜 위험한가</a>
+        <a href="#how">3. 공격 원리</a>
+        <a href="#types">4. 대표 공격 유형</a>
+        <a href="#param">5. 방어① 파라미터화 쿼리</a>
+        <a href="#orm">6. 방어② ORM</a>
+        <a href="#whitelist">7. 방어③ 화이트리스트</a>
+        <a href="#waf">8. 보조방어 WAF</a>
+        <a href="#hardening">9. 추가 하드닝</a>
+        <a href="#brute">10. 무차별 대입 방어</a>
+        <a href="#checklist">11. 최종 체크리스트</a>
+      </aside>
+
+      <!-- 본문 -->
+      <main class="guide">
+        <section id="what">
+          <h2>1. SQL 인젝션이란</h2>
+          <p>
+            <b>SQL 인젝션(SQL Injection)</b>은 애플리케이션이 사용자 입력값을 충분히 검증·분리하지 않고 SQL 질의문에
+            <b>문자열로 직접 이어 붙일 때</b> 발생합니다. 공격자는 입력값에 따옴표(<code>'</code>), 주석(<code>--</code>),
+            <code>UNION</code> 같은 SQL 문법을 섞어 넣어, 개발자가 의도한 것과 <b>다른 쿼리</b>를 데이터베이스에서 실행시킵니다.
+          </p>
+          <div class="callout info">
+            <span class="ico">🧩</span>
+            <div>핵심은 <b>"데이터"로 다뤄야 할 입력이 "코드(SQL 문법)"로 해석되는 것</b>입니다. 모든 방어 기법은 결국
+            <b>입력을 코드가 아닌 값으로만 다루게 만드는 것</b>으로 귀결됩니다.</div>
+          </div>
+        </section>
+
+        <section id="why">
+          <h2>2. 왜 위험한가</h2>
+          <ul>
+            <li><b>인증 우회</b> — 비밀번호 없이 관리자 계정으로 로그인</li>
+            <li><b>정보 유출</b> — 회원 전체의 아이디·비밀번호·개인정보 탈취 (이 사이트의 더미 DB에서 직접 확인 가능)</li>
+            <li><b>데이터 변조·삭제</b> — <code>UPDATE</code>/<code>DELETE</code>/<code>DROP</code>으로 데이터 파괴</li>
+            <li><b>권한 상승·내부 침투</b> — DB 계정 권한에 따라 서버 명령 실행, 파일 접근까지 이어질 수 있음</li>
+          </ul>
+          <p class="muted">OWASP Top 10에서 인젝션은 수년째 최상위권 취약점입니다. 한 줄의 잘못된 쿼리가 서비스 전체를 위협합니다.</p>
+          <p><a class="btn btn-sm" href="/dummy.html">→ 더미 사이트에서 직접 피해 재현해보기</a></p>
+        </section>
+
+        <section id="how">
+          <h2>3. 공격 원리 — 쿼리는 이렇게 변형된다</h2>
+          <p>로그인 쿼리를 문자열로 결합하는 취약한 코드를 보겠습니다.</p>
+          <pre class="code">const sql = "SELECT * FROM users WHERE username = '" + username + "' AND password = '" + password + "'";</pre>
+          <p>여기에 아이디로 <code>admin' --</code> 를 입력하면, 최종 쿼리는 다음과 같이 바뀝니다.</p>
+          <pre class="sql">SELECT * FROM users WHERE username = '<mark class="inj">admin' --</mark>' AND password = '...'</pre>
+          <p>
+            입력 속 <code>'</code> 가 문자열을 닫아버리고, <code>--</code> 뒤는 <b>SQL 주석</b>이 되어
+            <code>AND password = '...'</code> 비밀번호 검사가 통째로 사라집니다. 결국 DB는 이렇게 해석합니다:
+          </p>
+          <pre class="sql">SELECT * FROM users WHERE username = 'admin'   <span class="c">-- 나머지는 주석 처리됨</span></pre>
+          <p>비밀번호를 몰라도 admin 행이 반환되어 <b>로그인에 성공</b>합니다. 이것이 인증 우회의 원리입니다.</p>
+          <div class="flow" style="margin-top:14px;">
+            <div class="box">입력값<br /><code class="faint">admin' --</code></div>
+            <div class="arrow">→</div>
+            <div class="box">따옴표로 문자열 종료<br /><code class="faint">'</code></div>
+            <div class="arrow">→</div>
+            <div class="box">주석으로 뒷부분 무력화<br /><code class="faint">--</code></div>
+            <div class="arrow">→</div>
+            <div class="box danger">비밀번호 검사 제거<br />→ 인증 우회</div>
+          </div>
+        </section>
+
+        <section id="types">
+          <h2>4. 대표 공격 유형</h2>
+          <h3>① 인증 우회 (Tautology)</h3>
+          <p>항상 참인 조건을 주입해 <code>WHERE</code> 절을 무력화합니다. <code>' OR 1=1 --</code>, <code>admin' --</code> 등.</p>
+
+          <h3>② UNION 기반 추출</h3>
+          <p>원래 쿼리 결과에 <code>UNION SELECT</code>로 <b>다른 테이블</b>의 데이터를 이어 붙여 한 번에 끌어냅니다. 컬럼 개수·타입을 맞추는 것이 관건입니다.</p>
+          <pre class="sql">검색어: <mark class="inj">%' UNION SELECT id, username, password, email FROM users -- </mark>
+→ 공지 목록 대신 회원 계정·비밀번호가 함께 반환됨</pre>
+
+          <h3>③ 불리언 기반 블라인드</h3>
+          <p>결과가 직접 안 보일 때, 참/거짓에 따른 응답 차이로 데이터를 한 비트씩 알아냅니다. <code>... AND SUBSTR(password,1,1)='a'</code>.</p>
+
+          <h3>④ 시간 기반 블라인드</h3>
+          <p>응답 내용이 전혀 없을 때, 조건이 참이면 <b>지연</b>되도록 만들어 시간 차이로 추론합니다. <code>... AND SLEEP(5)</code>, <code>WAITFOR DELAY</code>.</p>
+
+          <h3>⑤ 오류 기반</h3>
+          <p>일부러 DB 오류를 유발하고, 오류 메시지에 데이터가 노출되게 만듭니다. → 상세 오류 메시지를 사용자에게 보여주지 않는 것이 방어.</p>
+
+          <h3>⑥ 스택 쿼리</h3>
+          <p><code>; DROP TABLE users --</code> 처럼 여러 문장을 한 번에 실행. 드라이버/DB 설정에 따라 차단되기도 하지만, 허용되면 치명적입니다.</p>
+        </section>
+
+        <section id="param">
+          <h2>5. 방어① 파라미터화 쿼리 <span class="badge badge-safe">가장 중요</span></h2>
+          <p>
+            <b>파라미터화 쿼리(Prepared Statement)</b>는 SQL의 <b>구조</b>를 먼저 DB에 보내 고정하고, 사용자 입력은 나중에
+            <code>?</code>(또는 <code>:name</code>) 자리표시자에 <b>값으로만</b> 전달합니다. 입력이 아무리 <code>' OR 1=1 --</code> 같아도
+            DB는 그것을 <b>하나의 문자열 값</b>으로만 취급하므로 문법으로 해석되지 않습니다. <b>거의 모든 SQL 인젝션을 원천 차단</b>하는 1차 방어입니다.</p>
+
+          <div class="compare">
+            <div class="col bad card">
+              <h4>❌ 나쁜 예 — 문자열 결합 (Node.js)</h4>
+              <pre class="code">db.prepare(
+  `SELECT * FROM users
+   WHERE username = '<mark class="inj">${username}</mark>'`
+).all();</pre>
+            </div>
+            <div class="col good card">
+              <h4>✅ 좋은 예 — 파라미터 바인딩 (Node.js)</h4>
+              <pre class="code">db.prepare(
+  `SELECT * FROM users
+   WHERE username = ?`
+).get(username);  <span class="c">// 값으로만 전달</span></pre>
+            </div>
+          </div>
+
+          <h3>언어별 파라미터화 예시</h3>
+          <div class="compare">
+            <div class="col bad card">
+              <h4>❌ Python — 문자열 포매팅</h4>
+              <pre class="code">cur.execute(
+  "SELECT * FROM users WHERE name='<mark class="inj">%s</mark>'" % name
+)</pre>
+            </div>
+            <div class="col good card">
+              <h4>✅ Python — 플레이스홀더</h4>
+              <pre class="code">cur.execute(
+  "SELECT * FROM users WHERE name = ?",
+  (name,)            <span class="c"># 튜플로 바인딩</span>
+)</pre>
+            </div>
+          </div>
+          <div class="compare">
+            <div class="col bad card">
+              <h4>❌ Java — Statement + 결합</h4>
+              <pre class="code">stmt.executeQuery(
+  "SELECT * FROM users WHERE id='<mark class="inj">"+id+"</mark>'"
+);</pre>
+            </div>
+            <div class="col good card">
+              <h4>✅ Java — PreparedStatement</h4>
+              <pre class="code">PreparedStatement ps = con.prepareStatement(
+  "SELECT * FROM users WHERE id = ?");
+ps.setString(1, id);
+ps.executeQuery();</pre>
+            </div>
+          </div>
+          <div class="compare">
+            <div class="col bad card">
+              <h4>❌ PHP — 변수 삽입</h4>
+              <pre class="code">$db->query(
+  "SELECT * FROM users WHERE u='<mark class="inj">$u</mark>'"
+);</pre>
+            </div>
+            <div class="col good card">
+              <h4>✅ PHP — PDO Prepared</h4>
+              <pre class="code">$st = $db->prepare(
+  "SELECT * FROM users WHERE u = :u");
+$st->execute([':u' => $u]);</pre>
+            </div>
+          </div>
+
+          <div class="callout warn">
+            <span class="ico">⚠️</span>
+            <div><b>주의:</b> 테이블명·컬럼명·<code>ORDER BY</code> 방향 같은 <b>식별자</b>는 <code>?</code> 로 바인딩할 수 없습니다.
+            이런 값은 반드시 <b>화이트리스트</b>(허용된 목록 중 하나인지 확인)로 검증해야 합니다. → 7장 참고.</div>
+          </div>
+        </section>
+
+        <section id="orm">
+          <h2>6. 방어② ORM 프레임워크 <span class="badge badge-safe">권장</span></h2>
+          <p>
+            Sequelize·Prisma·TypeORM·Django ORM·Hibernate 같은 ORM은 <b>객체/메서드로 조건을 표현</b>하면 내부적으로
+            <b>파라미터화 쿼리를 자동 생성</b>합니다. 개발자가 SQL을 손으로 결합할 일이 없어져 인젝션 위험이 구조적으로 줄고,
+            생산성도 높습니다. 이 사이트의 ORM 모드도 동일한 원리(값을 전부 <code>?</code>에 바인딩)로 동작합니다.</p>
+          <div class="compare">
+            <div class="col good card">
+              <h4>✅ Sequelize (Node.js)</h4>
+              <pre class="code">User.findOne({
+  where: { username, password }
+});
+<span class="c">// → WHERE username = ? AND password = ?</span></pre>
+            </div>
+            <div class="col good card">
+              <h4>✅ Prisma (Node.js)</h4>
+              <pre class="code">prisma.user.findFirst({
+  where: { username, password }
+});</pre>
+            </div>
+          </div>
+          <div class="callout warn">
+            <span class="ico">⚠️</span>
+            <div>ORM도 <b>raw query</b> 기능(<code>sequelize.query("..."+input)</code>, <code>$queryRawUnsafe</code> 등)으로
+            직접 문자열을 결합하면 똑같이 취약해집니다. ORM을 쓰더라도 <b>raw 쿼리에는 반드시 바인딩 파라미터</b>를 사용하세요.</div>
+          </div>
+        </section>
+
+        <section id="whitelist">
+          <h2>7. 방어③ 화이트리스트 입력 검증 <span class="badge badge-warn">보조</span></h2>
+          <p>
+            <b>화이트리스트(allowlist)</b>는 "허용된 것만 통과"시키는 방식입니다. 예를 들어 아이디는
+            <code>영문·숫자·_ 1~32자</code>만 허용하면, <code>'</code> 나 <code>--</code> 가 포함된 공격 입력은 입력 단계에서 거부됩니다.
+            금지 문자를 나열하는 <b>블랙리스트보다 안전</b>합니다(빠뜨린 문자가 없으므로).</p>
+          <pre class="code">const USERNAME = /^[A-Za-z0-9_]{1,32}$/;
+if (!USERNAME.test(username)) return reject("형식 오류");  <span class="c">// 공격 입력 차단</span></pre>
+          <p>특히 <b>식별자(테이블·컬럼명), 정렬 방향, 페이지 크기</b>처럼 파라미터화가 불가능한 값에는 화이트리스트가 <b>필수</b>입니다.</p>
+          <pre class="code">const SORT = { name: "name", date: "created_at" };
+const col = SORT[req.query.sort] || "name";   <span class="c">// 허용된 컬럼만</span>
+db.prepare(`SELECT * FROM posts ORDER BY ${col}`);</pre>
+          <div class="callout danger">
+            <span class="ico">🚧</span>
+            <div><b>화이트리스트 단독은 한계가 있습니다.</b> 비밀번호·게시글 본문처럼 특수문자를 정상적으로 허용해야 하는 입력엔 적용이 어렵고,
+            검증 규칙의 빈틈으로 우회될 수 있습니다. <b>반드시 파라미터화 쿼리(5장)와 함께</b> 쓰는 <b>심층 방어(defense-in-depth)</b>의 한 겹으로 사용하세요.</div>
+          </div>
+        </section>
+
+        <section id="waf">
+          <h2>8. 보조 방어 — WAF (웹 방화벽) <span class="badge badge-warn">보조</span></h2>
+          <p>
+            <b>WAF(Web Application Firewall)</b>는 애플리케이션 앞단에서 들어오는 요청을 검사해, 잘 알려진 공격 패턴(시그니처)을
+            <b>코드에 도달하기 전에 차단</b>합니다. ModSecurity, AWS WAF, Cloudflare 등이 대표적입니다. 이 사이트의 WAF 토글도
+            아래 같은 시그니처를 탐지합니다.</p>
+          <pre class="code">' OR / -- / UNION SELECT / ; DROP / SLEEP( / OR 1=1 ...</pre>
+          <div class="grid grid-2">
+            <div class="card tip" style="background:var(--success-bg);border-color:var(--success-bd);">
+              <h4 class="mt-0" style="color:var(--success)">👍 장점</h4>
+              <ul class="mb-0">
+                <li>코드 수정 없이 빠르게 1차 방어선 추가</li>
+                <li>알려진 자동화 공격·스캐너를 대량 차단</li>
+                <li>로깅·탐지로 공격 가시성 확보</li>
+              </ul>
+            </div>
+            <div class="card" style="background:var(--danger-bg);border-color:var(--danger-bd);">
+              <h4 class="mt-0" style="color:var(--danger)">👎 한계</h4>
+              <ul class="mb-0">
+                <li>패턴 기반이라 <b>인코딩·주석 삽입 등으로 우회</b> 가능</li>
+                <li>정상 입력을 막는 <b>오탐(false positive)</b></li>
+                <li>근본 원인(문자열 결합)은 그대로 — <b>임시방편</b></li>
+              </ul>
+            </div>
+          </div>
+          <div class="callout info">
+            <span class="ico">💡</span>
+            <div>WAF는 "시간을 벌어주는 울타리"입니다. <b>진짜 방어는 코드 레벨의 파라미터화 쿼리</b>이며, WAF는 그 위에 더하는 보조막으로 보세요.
+            실습실에서 WAF를 켜고 페이로드를 변형해 우회되는지 직접 실험해볼 수 있습니다.</div>
+          </div>
+        </section>
+
+        <section id="hardening">
+          <h2>9. 추가 하드닝</h2>
+          <ul>
+            <li><b>DB 계정 최소 권한</b> — 애플리케이션 계정에 <code>DROP</code>·관리 권한을 주지 않으면 인젝션 피해 범위가 줄어듭니다.</li>
+            <li><b>상세 오류 메시지 숨김</b> — 사용자에게는 일반화된 오류만 보여주고, 상세 로그는 서버 내부에만 남깁니다(오류 기반 공격 차단).</li>
+            <li><b>비밀번호 해시 저장</b> — bcrypt/argon2로 해시하면, 설령 테이블이 유출돼도 평문 비밀번호가 바로 드러나지 않습니다.
+              <span class="muted">(이 더미 사이트는 피해를 보여주려 일부러 평문 저장)</span></li>
+            <li><b>입력 길이·타입 제한</b> — 숫자 파라미터는 정수로 캐스팅, 과도한 길이 차단.</li>
+            <li><b>정기 점검</b> — 정적 분석(SAST)·동적 스캐너로 결합 쿼리를 지속 탐지.</li>
+          </ul>
+        </section>
+
+        <section id="brute">
+          <h2>10. 무차별 대입(Brute Force) 방어</h2>
+          <p>
+            인젝션이 막혀도 공격자는 비밀번호를 <b>반복 추측</b>할 수 있습니다. 더미 사이트 로그인에서 틀린 비밀번호로 여러 번 시도하면
+            <b>경고 → 위험 → 계정 잠금</b>으로 단계가 올라가는 것을 볼 수 있습니다. 실무 방어책은 다음과 같습니다.</p>
+          <ul>
+            <li><b>속도 제한(Rate limiting)</b> — IP/계정당 분당 시도 횟수 제한</li>
+            <li><b>계정 잠금·지연</b> — N회 실패 시 일시 잠금, 실패할수록 응답 지연 증가</li>
+            <li><b>CAPTCHA</b> — 자동화 도구 차단</li>
+            <li><b>2단계 인증(2FA)</b> — 비밀번호가 뚫려도 추가 인증으로 방어</li>
+            <li><b>이상 로그인 알림</b> — 새 기기/지역 로그인 시 사용자에게 통지</li>
+          </ul>
+
+          <!-- 비밀번호 크랙 시간 시뮬레이터 -->
+          <div class="card pw-sim" style="margin-top:20px;">
+            <h3 style="margin:0 0 4px;">🔓 내 비밀번호는 몇 번 만에, 몇 시간 만에 뚫릴까?</h3>
+            <p class="muted" style="margin:0 0 16px;font-size:14px;">
+              비밀번호를 입력하면 공격자가 <b>무차별 대입</b>으로 알아내는 데 필요한 시도 횟수와 시간을 추정합니다.
+              입력값은 <b>서버로 전송되지 않고</b> 브라우저에서만 계산됩니다.
+            </p>
+
+            <div class="field" style="margin-bottom:6px;">
+              <div class="row" style="gap:8px;align-items:center;">
+                <input type="text" id="pwInput" placeholder="비밀번호를 입력해 보세요 — 예: 1234, password, P@ssw0rd!" autocomplete="off" spellcheck="false" style="flex:1;font-family:var(--mono,monospace);letter-spacing:.03em;" />
+                <button class="btn btn-sm" id="pwToggle" type="button">🙈 가리기</button>
+              </div>
+            </div>
+
+            <!-- 강도 막대 -->
+            <div id="pwBar" style="display:flex;gap:5px;margin:14px 0 8px;">
+              <span style="flex:1;height:7px;border-radius:980px;background:var(--border-soft);transition:background .25s var(--ease);"></span>
+              <span style="flex:1;height:7px;border-radius:980px;background:var(--border-soft);transition:background .25s var(--ease);"></span>
+              <span style="flex:1;height:7px;border-radius:980px;background:var(--border-soft);transition:background .25s var(--ease);"></span>
+              <span style="flex:1;height:7px;border-radius:980px;background:var(--border-soft);transition:background .25s var(--ease);"></span>
+              <span style="flex:1;height:7px;border-radius:980px;background:var(--border-soft);transition:background .25s var(--ease);"></span>
+            </div>
+            <div id="pwVerdict" class="muted" style="font-weight:700;font-size:15px;min-height:22px;">비밀번호를 입력해 보세요.</div>
+
+            <!-- 핵심 지표 -->
+            <div id="pwStats" class="grid" style="grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px;">
+              <div class="pw-stat"><div class="pw-k">문자 종류</div><div class="pw-v" id="pwCharset">—</div></div>
+              <div class="pw-stat"><div class="pw-k">가능한 경우의 수</div><div class="pw-v" id="pwSpace">—</div></div>
+              <div class="pw-stat"><div class="pw-k">엔트로피</div><div class="pw-v" id="pwEntropy">—</div></div>
+            </div>
+
+            <!-- 시나리오별 크랙 시간 -->
+            <div style="margin-top:16px;">
+              <div class="muted" style="font-size:12.5px;font-weight:700;margin-bottom:8px;">공격 시나리오별 예상 소요 시간 (평균)</div>
+              <div class="pw-scn">
+                <div class="pw-scn-name">🐌 온라인 (속도제한 有)<span class="pw-scn-rate">100회/초</span></div>
+                <div class="pw-scn-time" id="pwOnline">—</div>
+              </div>
+              <div class="pw-scn">
+                <div class="pw-scn-name">⚡ 오프라인·bcrypt 해시<span class="pw-scn-rate">2만회/초</span></div>
+                <div class="pw-scn-time" id="pwBcrypt">—</div>
+              </div>
+              <div class="pw-scn">
+                <div class="pw-scn-name">🔥 오프라인·고속 GPU(MD5/SHA)<span class="pw-scn-rate">1조회/초</span></div>
+                <div class="pw-scn-time" id="pwGpu">—</div>
+              </div>
+            </div>
+
+            <!-- 좋은 비밀번호 만들기 가이드 -->
+            <div class="callout tip" style="margin-top:18px;">
+              <span class="ico">💡</span>
+              <div>
+                <b>안전한 비밀번호 만드는 법</b>
+                <ul style="margin:8px 0 0;padding-left:18px;line-height:1.8;">
+                  <li><b>길이가 가장 강력</b> — 8자보다 16자가 비교 불가로 안전. 길이를 늘리면 경우의 수가 기하급수적으로 커집니다.</li>
+                  <li><b>4가지 문자 종류 섞기</b> — 소문자·대문자·숫자·기호를 모두 사용해 문자 집합을 키웁니다.</li>
+                  <li><b>패스프레이즈 추천</b> — <code>correct-horse-battery-staple</code>처럼 관련 없는 단어 4개를 이으면 길고 외우기 쉽습니다.</li>
+                  <li><b>흔한 비밀번호·개인정보 금지</b> — <code>1234</code>, <code>password</code>, 생일, 이름은 사전 공격 1순위로 즉시 뚫립니다.</li>
+                  <li><b>사이트마다 다르게</b> — 한 곳이 유출돼도 다른 계정이 안전합니다. 비밀번호 관리자 사용을 권장합니다.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div class="callout tip" style="margin-top:14px;">
+            <span class="ico">🧪</span>
+            <div><a href="/dummy.html">더미 사이트</a>의 "④ 무차별 대입 체험"으로 직접 실패를 쌓아 경고 단계가 올라가는 걸 확인해보세요.</div>
+          </div>
+        </section>
+
+        <section id="checklist">
+          <h2>11. 최종 체크리스트</h2>
+          <div class="card">
+            <ul class="mb-0" style="line-height:2;">
+              <li>✅ 모든 쿼리에 <b>파라미터화/Prepared Statement</b> 사용 (문자열 결합 금지)</li>
+              <li>✅ ORM 사용 시에도 <b>raw 쿼리에는 바인딩</b> 적용</li>
+              <li>✅ 식별자·정렬·페이지 값은 <b>화이트리스트</b>로 검증</li>
+              <li>✅ <b>입력 검증</b>(형식·길이·타입)을 추가 방어막으로 적용</li>
+              <li>✅ <b>WAF</b>로 알려진 공격 시그니처 1차 차단 (단, 근본 방어 아님)</li>
+              <li>✅ DB 계정 <b>최소 권한</b>, 상세 <b>오류 메시지 숨김</b></li>
+              <li>✅ 비밀번호 <b>해시(bcrypt/argon2)</b> 저장</li>
+              <li>✅ 로그인 <b>속도 제한·계정 잠금·2FA</b>로 무차별 대입 방어</li>
+            </ul>
+          </div>
+          <div class="row mt">
+            <a class="btn btn-primary" href="/lab.html">🧪 실습실에서 4가지 방어 비교하기</a>
+            <a class="btn" href="/dummy.html">🎯 더미 사이트에서 공격 재현하기</a>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <footer class="footer">🛡️ SQLi·Guard — 방어 가이드 · 교육용 로컬 실습 전용</footer>
+
+  <script src="/js/app.js"></script>
+  <script>
+    // TOC 스크롤스파이
+    const links = [...document.querySelectorAll('.toc a')];
+    const sections = links.map((a) => document.querySelector(a.getAttribute('href')));
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach((e) => {
+        if (e.isIntersecting) {
+          const id = '#' + e.target.id;
+          links.forEach((a) => a.classList.toggle('active', a.getAttribute('href') === id));
+        }
+      });
+    }, { rootMargin: '-30% 0px -65% 0px' });
+    sections.forEach((s) => s && obs.observe(s));
+
+    // ── 비밀번호 크랙 시간 시뮬레이터 ──
+    (function () {
+      const input = document.getElementById('pwInput');
+      const toggle = document.getElementById('pwToggle');
+      const bar = document.getElementById('pwBar').children;
+      const verdict = document.getElementById('pwVerdict');
+      const elCharset = document.getElementById('pwCharset');
+      const elSpace = document.getElementById('pwSpace');
+      const elEntropy = document.getElementById('pwEntropy');
+      const elOnline = document.getElementById('pwOnline');
+      const elBcrypt = document.getElementById('pwBcrypt');
+      const elGpu = document.getElementById('pwGpu');
+      if (!input) return;
+
+      // 사전 공격으로 즉시 뚫리는 흔한 비밀번호
+      const COMMON = new Set(['1234','12345','123456','1234567','12345678','123456789','1234567890',
+        '0000','1111','password','password1','passw0rd','qwerty','qwerty123','abc123','admin','guest',
+        'iloveyou','letmein','welcome','monkey','dragon','master','login','1q2w3e4r','asdf','asdfasdf',
+        'zxcvbnm','aaaa','test','test1234','1q2w3e','111111','000000','korea','samsung']);
+
+      function classes(pw) {
+        let size = 0, kinds = [];
+        if (/[a-z]/.test(pw)) { size += 26; kinds.push('소문자'); }
+        if (/[A-Z]/.test(pw)) { size += 26; kinds.push('대문자'); }
+        if (/[0-9]/.test(pw)) { size += 10; kinds.push('숫자'); }
+        if (/[^a-zA-Z0-9]/.test(pw)) { size += 33; kinds.push('기호'); }
+        return { size, kinds };
+      }
+
+      // 큰 수를 한국어 단위로 축약 (10^n)
+      function bigNum(x) {
+        if (x === Infinity || x > 1e24) return '사실상 무한';
+        if (x < 1e4) return Math.round(x).toLocaleString();
+        const units = [[1e16,'경'],[1e12,'조'],[1e8,'억'],[1e4,'만']];
+        for (const [v, u] of units) {
+          if (x >= v) return (x / v).toFixed(x / v >= 100 ? 0 : 1).replace(/\.0$/, '') + u;
+        }
+        return Math.round(x).toLocaleString();
+      }
+
+      // 초 단위를 사람이 읽는 시간으로
+      function humanTime(sec) {
+        if (sec < 1) return '1초 미만 (즉시)';
+        const u = [
+          [60, '초'], [60, '분'], [24, '시간'], [365, '일'],
+          [100, '년'], [1e6, '세기'],
+        ];
+        let val = sec, idx = 0, names = ['초','분','시간','일','년','세기','백만 세기'];
+        const divs = [1, 60, 60, 24, 365, 100, 1e6];
+        let acc = sec, i = 0;
+        for (i = 0; i < divs.length - 1; i++) {
+          if (acc < divs[i + 1]) break;
+          acc /= divs[i + 1];
+        }
+        const name = names[i];
+        if (name === '백만 세기' || acc > 1e9) {
+          if (acc > 1e9) return '우주 나이보다 김 (사실상 불가)';
+          return Math.round(acc).toLocaleString() + ' ' + name;
+        }
+        const rounded = acc >= 100 ? Math.round(acc) : Math.round(acc * 10) / 10;
+        return rounded.toLocaleString() + name;
+      }
+
+      // 시간 길이에 따른 위험 색상
+      function timeColor(sec) {
+        if (sec < 60) return 'var(--danger)';        // 1분 미만
+        if (sec < 86400) return 'var(--warn)';       // 하루 미만
+        if (sec < 3.15e9) return 'var(--text)';      // 100년 미만
+        return 'var(--success)';                     // 100년 이상
+      }
+
+      function paintBar(level, color) {
+        for (let i = 0; i < bar.length; i++) {
+          bar[i].style.background = i < level ? color : 'var(--border-soft)';
+        }
+      }
+
+      function update() {
+        const pw = input.value;
+        if (!pw) {
+          verdict.textContent = '비밀번호를 입력해 보세요.';
+          verdict.style.color = 'var(--muted)';
+          paintBar(0, '');
+          [elCharset, elSpace, elEntropy, elOnline, elBcrypt, elGpu].forEach((e) => {
+            e.textContent = '—'; e.style.color = 'var(--text)';
+          });
+          return;
+        }
+
+        const { size, kinds } = classes(pw);
+        const len = pw.length;
+        const entropy = len * Math.log2(size || 1);
+        const space = Math.pow(size || 1, len);
+        const guesses = space / 2; // 평균적으로 절반 시도 시 발견
+
+        elCharset.textContent = kinds.join('+') + ` (${size}종)`;
+        elSpace.textContent = bigNum(space);
+        elEntropy.textContent = Math.round(entropy) + ' bit';
+
+        const rates = { online: 100, bcrypt: 20000, gpu: 1e12 };
+        const isCommon = COMMON.has(pw.toLowerCase());
+
+        function setScn(el, rate) {
+          if (isCommon) { el.textContent = '즉시 (사전 공격)'; el.style.color = 'var(--danger)'; return; }
+          const sec = guesses / rate;
+          el.textContent = humanTime(sec);
+          el.style.color = timeColor(sec);
+        }
+        setScn(elOnline, rates.online);
+        setScn(elBcrypt, rates.bcrypt);
+        setScn(elGpu, rates.gpu);
+
+        // 종합 판정 — 현실적 위협인 GPU 기준
+        let level, color, label;
+        const gpuSec = guesses / rates.gpu;
+        if (isCommon) {
+          level = 1; color = 'var(--danger)'; label = '☠️ 매우 취약 — 사전 공격 1순위, 즉시 뚫립니다';
+        } else if (len < 6 || entropy < 28) {
+          level = 1; color = 'var(--danger)'; label = '🔴 매우 약함 — 순식간에 뚫립니다';
+        } else if (gpuSec < 3600 || entropy < 40) {
+          level = 2; color = 'var(--danger)'; label = '🟠 약함 — 한 시간 안에 뚫립니다';
+        } else if (gpuSec < 2.6e6 || entropy < 60) {
+          level = 3; color = 'var(--warn)'; label = '🟡 보통 — 며칠~몇 주면 뚫립니다';
+        } else if (gpuSec < 3.15e9 || entropy < 80) {
+          level = 4; color = 'var(--success)'; label = '🟢 강함 — 수년이 걸립니다';
+        } else {
+          level = 5; color = 'var(--success)'; label = '🛡️ 매우 강함 — 현실적으로 뚫을 수 없습니다';
+        }
+        verdict.textContent = label;
+        verdict.style.color = color;
+        paintBar(level, color);
+      }
+
+      input.addEventListener('input', update);
+      toggle.addEventListener('click', () => {
+        const hidden = input.type === 'password';
+        input.type = hidden ? 'text' : 'password';
+        toggle.textContent = hidden ? '🙈 가리기' : '👁️ 보기';
+      });
+      update();
+    })();
+  </script>
+</body>
+</html>

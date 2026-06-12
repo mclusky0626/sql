@@ -1,0 +1,17 @@
+{
+  "name": "sqlprotection",
+  "version": "1.0.0",
+  "description": "SQL 인젝션 공격 원리와 방어를 배우는 교육용 가이드 웹사이트 (취약한 더미 사이트 + 방어 실습)",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --no-warnings server.js",
+    "dev": "node --no-warnings --watch server.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "express": "^4.22.2"
+  }
+}
