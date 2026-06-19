@@ -5,7 +5,12 @@ const { DatabaseSync } = require('node:sqlite');
 const path = require('node:path');
 
 // 데모용이므로 메모리 DB가 아닌 파일 DB를 쓰되, 서버 시작 시 항상 새로 시드한다.
-const DB_PATH = path.join(__dirname, '..', 'data', 'app.db');
+// Vercel 등 서버리스 환경은 프로젝트 디렉터리가 읽기 전용이라 쓰기 가능한 임시 디렉터리를 사용한다.
+const os = require('node:os');
+const DATA_DIR = process.env.VERCEL
+  ? path.join(os.tmpdir(), 'sqliguard-data')
+  : path.join(__dirname, '..', 'data');
+const DB_PATH = path.join(DATA_DIR, 'app.db');
 
 let db;
 

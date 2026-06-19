@@ -202,7 +202,12 @@ app.get('/api/waf/signatures', (req, res) => {
   res.json({ signatures: waf.SIGNATURES.map((s) => ({ name: s.name, pattern: s.re.source })) });
 });
 
-app.listen(PORT, () => {
-  console.log(`\n  🛡️  SQL 인젝션 방어 가이드 사이트`);
-  console.log(`  ➜  http://localhost:${PORT}\n`);
-});
+// 로컬에서 직접 실행할 때만 포트를 연다. (Vercel 등 서버리스에서는 app만 export)
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`\n  🛡️  SQL 인젝션 방어 가이드 사이트`);
+    console.log(`  ➜  http://localhost:${PORT}\n`);
+  });
+}
+
+module.exports = app;
