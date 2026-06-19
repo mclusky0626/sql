@@ -102,6 +102,18 @@ SHA-256("hellp")   → 7f1d... <span class="c">// 한 글자만 바뀌어도 완
             <span class="ico">💡</span>
             <div><b>해시는 어디에 쓰나요?</b> ① 비밀번호 저장(다음 장) ② 파일/다운로드 <b>무결성 검증</b>(받은 파일 해시가 공개된 해시와 같은지) ③ 블록체인·디지털 서명의 기반.</div>
           </div>
+
+          <div class="lab card">
+            <div class="lab-title">🧪 실습 — 해시 직접 만들어보기</div>
+            <label class="lab-label" for="hashInput">입력 텍스트 (실시간 해시)</label>
+            <textarea id="hashInput" class="lab-area" rows="2">hello</textarea>
+            <div class="lab-out">
+              <div class="lab-row"><span class="algo safe">SHA-256</span><code id="h256"></code></div>
+              <div class="lab-row"><span class="algo safe">SHA-512</span><code id="h512"></code></div>
+              <div class="lab-row"><span class="algo bad">SHA-1 (취약·금지)</span><code id="h1"></code></div>
+            </div>
+            <p class="muted mb-0">👉 글자 하나만 바꿔보세요. 결과 전체가 완전히 달라지는 <b>눈사태 효과</b>를 직접 볼 수 있습니다.</p>
+          </div>
         </section>
 
         <section id="hash-pw">
@@ -160,6 +172,25 @@ boolean ok = enc.matches(input, hash);</pre>
             <b>할 것:</b> 검증된 라이브러리(bcrypt/argon2)를 그대로 쓰기 — 솔트·반복은 라이브러리가 알아서 처리합니다.</div>
           </div>
           <p><a class="btn btn-sm" href="/bruteforce.html">→ 무차별 대입 탭에서 "해시가 느릴수록 왜 안전한지" 확인</a></p>
+
+          <div class="lab card">
+            <div class="lab-title">🧪 실습 — 솔트가 왜 필요한가</div>
+            <p class="muted mt-0">두 사용자가 <b>같은 비밀번호</b>를 쓴다고 가정합니다. 솔트가 없으면 해시도 똑같아 한 번 깨지면 전부 노출되지만, 솔트가 있으면 해시가 서로 달라집니다. (PBKDF2-SHA256 10만 회)</p>
+            <div class="lab-inline">
+              <input id="saltPw" class="lab-input" type="text" value="qwerty!" placeholder="공통 비밀번호" />
+              <button id="saltRun" class="btn btn-sm btn-primary">해시 계산</button>
+            </div>
+            <div id="saltOut" hidden>
+              <div class="lab-sub bad-sub">❌ 솔트 없는 SHA-256 — 두 사용자가 동일</div>
+              <div class="lab-row"><span class="algo">사용자 A</span><code id="saltPlainA"></code></div>
+              <div class="lab-row"><span class="algo">사용자 B</span><code id="saltPlainB"></code></div>
+              <div class="lab-sub good-sub">✅ 솔트 + PBKDF2 — 사용자마다 다름</div>
+              <div class="lab-row"><span class="algo">A 솔트</span><code id="saltA"></code></div>
+              <div class="lab-row"><span class="algo">A 해시</span><code id="saltHashA"></code></div>
+              <div class="lab-row"><span class="algo">B 솔트</span><code id="saltB"></code></div>
+              <div class="lab-row"><span class="algo">B 해시</span><code id="saltHashB"></code></div>
+            </div>
+          </div>
         </section>
 
         <section id="sym">
@@ -203,6 +234,36 @@ const tag = c.getAuthTag();  <span class="c">// 무결성 태그</span></pre>
             </div>
           </div>
           <p class="muted">바로 이 "키를 어떻게 안전하게 나눠 갖지?" 문제를 푸는 것이 다음의 공개키 암호화입니다.</p>
+
+          <div class="lab card">
+            <div class="lab-title">🧪 실습 — AES-256-GCM 암호화/복호화</div>
+            <p class="muted mt-0">같은 키로 잠그고 엽니다. 키가 틀리면 <b>복호화 자체가 실패</b>(GCM 무결성 검증)하는 걸 확인해보세요.</p>
+            <div class="lab-grid2">
+              <div>
+                <div class="lab-sub">🔒 암호화</div>
+                <label class="lab-label" for="symText">평문</label>
+                <textarea id="symText" class="lab-area" rows="2">현금 비밀번호는 1234</textarea>
+                <label class="lab-label" for="symKey">키 (비밀번호)</label>
+                <input id="symKey" class="lab-input" type="text" value="our-secret" />
+                <button id="symEnc" class="btn btn-sm btn-primary">암호화</button>
+                <label class="lab-label" for="symCipher">암호문 (base64)</label>
+                <textarea id="symCipher" class="lab-area mono" rows="3" readonly placeholder="여기에 암호문이 나옵니다"></textarea>
+                <button id="symCopy" class="btn btn-sm">→ 오른쪽 복호화 칸으로 복사</button>
+                <div id="symMsg" class="lab-result"></div>
+              </div>
+              <div>
+                <div class="lab-sub">🔓 복호화</div>
+                <label class="lab-label" for="symCipherIn">암호문 (base64)</label>
+                <textarea id="symCipherIn" class="lab-area mono" rows="3" placeholder="암호문을 붙여넣기"></textarea>
+                <label class="lab-label" for="symKey2">키 — 같게/다르게 시도</label>
+                <input id="symKey2" class="lab-input" type="text" value="our-secret" />
+                <button id="symDec" class="btn btn-sm btn-primary">복호화</button>
+                <label class="lab-label" for="symPlain">복호화 결과</label>
+                <textarea id="symPlain" class="lab-area" rows="2" readonly></textarea>
+                <div id="symMsg2" class="lab-result"></div>
+              </div>
+            </div>
+          </div>
         </section>
 
         <section id="asym">
@@ -245,6 +306,35 @@ const tag = c.getAuthTag();  <span class="c">// 무결성 태그</span></pre>
               </ul>
             </div>
           </div>
+
+          <div class="lab card">
+            <div class="lab-title">🧪 실습 — RSA 공개키로 잠그고 개인키로 열기</div>
+            <div class="lab-inline">
+              <button id="rsaGen" class="btn btn-sm btn-primary">① 2048비트 키 쌍 생성</button>
+            </div>
+            <div id="rsaMsg" class="lab-result"></div>
+            <div class="lab-grid2">
+              <div>
+                <label class="lab-label" for="rsaPub">공개키 (spki, base64) — 공개해도 됨</label>
+                <textarea id="rsaPub" class="lab-area mono" rows="3" readonly></textarea>
+              </div>
+              <div>
+                <label class="lab-label" for="rsaPrv">개인키 (pkcs8, base64) — 비밀!</label>
+                <textarea id="rsaPrv" class="lab-area mono" rows="3" readonly></textarea>
+              </div>
+            </div>
+            <label class="lab-label" for="rsaText">② 보낼 메시지 (짧게)</label>
+            <input id="rsaText" class="lab-input" type="text" value="비밀 메시지입니다" />
+            <div class="lab-inline">
+              <button id="rsaEnc" class="btn btn-sm">🔒 공개키로 암호화</button>
+              <button id="rsaDec" class="btn btn-sm">🔓 개인키로 복호화</button>
+            </div>
+            <label class="lab-label" for="rsaCipher">암호문 (base64)</label>
+            <textarea id="rsaCipher" class="lab-area mono" rows="2" readonly></textarea>
+            <label class="lab-label" for="rsaPlain">복호화 결과</label>
+            <input id="rsaPlain" class="lab-input" type="text" readonly />
+            <div id="rsaMsg2" class="lab-result"></div>
+          </div>
         </section>
 
         <section id="sign">
@@ -269,6 +359,24 @@ const tag = c.getAuthTag();  <span class="c">// 무결성 태그</span></pre>
             <li><b>부인 방지</b> — 보낸 사실을 부정할 수 없음</li>
           </ul>
           <p class="muted">JWT 서명, 코드 서명, 인증서(CA 서명)가 모두 이 원리입니다.</p>
+
+          <div class="lab card">
+            <div class="lab-title">🧪 실습 — 서명하고, 메시지를 바꿔서 검증해보기</div>
+            <div class="lab-inline">
+              <button id="signGen" class="btn btn-sm btn-primary">① 서명 키 쌍(ECDSA) 생성</button>
+            </div>
+            <div id="signMsg" class="lab-result"></div>
+            <label class="lab-label" for="signMsgText">② 메시지</label>
+            <textarea id="signMsgText" class="lab-area" rows="2">송금: 홍길동에게 10000원</textarea>
+            <div class="lab-inline">
+              <button id="signDo" class="btn btn-sm">🔑 개인키로 서명</button>
+              <button id="signCheck" class="btn btn-sm">🔓 공개키로 검증</button>
+            </div>
+            <label class="lab-label">서명값 (base64)</label>
+            <code id="signSig" class="lab-codeblock"></code>
+            <div id="signVerify" class="lab-result"></div>
+            <p class="muted mb-0">👉 서명 후 위 메시지를 한 글자만 바꾼 다음 <b>검증</b>을 눌러보세요 — 변조가 탐지됩니다.</p>
+          </div>
         </section>
 
         <section id="hybrid">
@@ -369,6 +477,7 @@ kim   | $argon2id$...  <span class="c">// 크랙에 막대한 비용</span></pre
   <footer class="footer">🛡️ SQLi·Guard — 암호화 가이드(해시·대칭키·공개키) · 교육용 로컬 실습 전용</footer>
 
   <script src="/js/app.js"></script>
+  <script src="/js/crypto-lab.js"></script>
   <script>
     // TOC 스크롤스파이
     const links = [...document.querySelectorAll('.toc a')];

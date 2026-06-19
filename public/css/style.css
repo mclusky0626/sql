@@ -215,6 +215,46 @@ table.cmp-table thead th { background: var(--bg-soft); font-weight: 700; border-
 table.cmp-table tbody td:first-child { white-space: nowrap; color: var(--muted); background: var(--bg-soft); }
 table.cmp-table tr:last-child td { border-bottom: 0; }
 
+/* ---------- 암호화 실습 위젯 ---------- */
+.lab { margin-top: 18px; border: 1px solid var(--info-bd); background: var(--info-bg); }
+.lab-title { font-weight: 700; font-size: 15.5px; margin-bottom: 10px; }
+.lab-label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; font-weight: 600; }
+.lab-input, .lab-area {
+  width: 100%; box-sizing: border-box; padding: 9px 11px; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 14px;
+}
+.lab-area { resize: vertical; }
+.lab-area.mono, .lab-input.mono { font-family: var(--mono); font-size: 12px; }
+.lab-input:focus, .lab-area:focus { outline: none; border-color: var(--accent); }
+.lab-inline { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; }
+.lab-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.lab-out { margin: 12px 0; display: grid; gap: 6px; }
+.lab-row { display: flex; gap: 10px; align-items: baseline; font-size: 12.5px; }
+.lab-row .algo {
+  flex: 0 0 110px; font-weight: 700; font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.3px; color: var(--muted);
+}
+.lab-row .algo.safe { color: var(--success); }
+.lab-row .algo.bad { color: var(--danger); }
+.lab-row code {
+  font-family: var(--mono); font-size: 11.5px; word-break: break-all; color: var(--text);
+  background: var(--bg); padding: 3px 7px; border-radius: 6px; border: 1px solid var(--border-soft); flex: 1;
+}
+.lab-codeblock {
+  display: block; font-family: var(--mono); font-size: 11.5px; word-break: break-all;
+  background: var(--bg); padding: 8px 10px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft); min-height: 18px; margin-top: 4px;
+}
+.lab-sub { font-weight: 700; font-size: 12.5px; margin: 12px 0 6px; }
+.lab-sub.bad-sub { color: var(--danger); }
+.lab-sub.good-sub { color: var(--success); }
+.lab-result { font-size: 12.5px; margin-top: 8px; min-height: 16px; }
+.lab-result.good { color: var(--success); font-weight: 600; }
+.lab-result.bad { color: var(--danger); font-weight: 600; }
+.lab-result.muted { color: var(--muted); }
+@media (max-width: 720px) { .lab-grid2 { grid-template-columns: 1fr; } }
+
 /* ---------- 토글 (iOS 스타일) ---------- */
 .switch { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
 .switch input { display: none; }
